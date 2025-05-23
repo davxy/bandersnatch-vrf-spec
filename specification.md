@@ -3,7 +3,7 @@ title: Bandersnatch VRF-AD Specification
 author:
   - Davide Galassi
   - Seyed Hosseini
-date: 28 Mar 2025 - Draft 27
+date: 23 May 2025 - Draft 28
 ---
 
 \newcommand{\G}{\bold{G}}
@@ -42,25 +42,31 @@ specified in [MSZ21] [@MSZ21].
 - $O \in \G$: VRF output point.
 - $o \in \S^k$: VRF output hash.
 
-## 1.2. VRF Input
+## 1.2. Secret Key Generation
+
+Implementations should provide a method for deterministic secret generation from
+seeds. One RECOMMENDED method is described in Section A. However, any secure
+method that outputs uniformly random scalars in $\F$​ is acceptable.
+
+## 1.3. VRF Input
 
 An arbitrary length octet-string provided by the user to generate some
 unbiasable verifiable random output.
 
-## 1.3. VRF Input Point
+## 1.4. VRF Input Point
 
 A point in $\G$ generated from VRF input octet-string using the *Elligator 2*
 *hash-to-curve* algorithm as described by section 6.8.2 of [RFC-9380] [@RFC9380].
 
 $$I \gets \texttt{hash\_to\_curve}(i)$$
 
-## 1.4. VRF Output Point
+## 1.5. VRF Output Point
 
 A point generated from VRF input point and secret key scalar.
 
 $$O \gets x \cdot I$$
 
-## 1.4. VRF Output
+## 1.6. VRF Output
 
 A fixed-length octet string produced from the VRF output point using the
 *output-to-hash* procedure, which is *proof-to-hash* method described in
@@ -70,12 +76,12 @@ proof bundle.
 
 $$o \gets \texttt{output\_to\_hash}(O)$$
 
-## 1.5 Additional Data
+## 1.7 Additional Data
 
 An arbitrary length octet-string provided by the user to be signed together with
 the generated VRF output. This data doesn't influence the produced VRF output.
 
-## 1.6. VRF-AD
+## 1.8. VRF-AD
 
 Regardless of the specific scheme, a *Verifiable Random Function with Additional
 Data (VRF-AD)* can be concisely represented by three primary functions:
@@ -91,10 +97,10 @@ Here:
 - $\Pi \gets \texttt{encode\_compressed}((O, \pi))$, where $\pi$ is the proof
   specific to the underlying scheme, and $O$ represents the VRF output point.
 
-## 1.7. Challenge Procedure
+## 1.9. Challenge Procedure
 
 Challenge construction mostly follows the procedure given in section 5.4.3 of
-[RFC-9381] [@RFC9381] with some tweaks to add additional data.
+[RFC-9381] [@RFC9381] with some tweaks to include additional data.
 
 **Input**:  
 
@@ -394,12 +400,42 @@ $$_{\omega = 4930761572854476501216612180227865807071116983904168357507179523674
 6. $\theta \gets \theta_0 \land \theta_1$
 
 
-# Appendix A
+# Appendix A. Recommendations
+
+## A.1. Deterministic Secret Key Scalar Generation
+
+For convenience and to facilitate deterministic key generation (e.g., from
+mnemonic phrases), we suggest the following method to derive a secret scalar
+from an arbitrary byte string seed. This procedure is not mandated by the
+specification and may be replaced by any secure method that produces uniformly
+distributed scalars in the field $F$.
+
+**Input**:
+
+- $seed \in \S^*$: seed octet-string.
+
+**Output**:
+
+- $secret \in \F$: secret key scalar.
+
+**Steps**:
+
+1. $h \gets \text{sha-512}(seed)$
+2. Interpret $h$ as a 512-bit little-endian integer $v$.
+3. Reduce $v$ modulo the prime order $r$ of the scalar field to get $secret$.
+
+The resulting $secret$ scalar is used as the secret key in subsequent operations.
+
+Note: Unlike Ed25519-style key generation, this procedure does not apply
+clamping or any bit-masking to the scalar. The scalar is derived via a direct
+modular reduction, which ensures a uniform distribution over $F$.
+
+# Appendix B. Test Vectors
 
 The test vectors in this section were generated using `ark-ec-vrf` libraries
 revision [`bf2d1cf`](https://github.com/davxy/ark-vrf/tree/bf2d1cf8ec648cf57b0eb1252639798481e05a29).
 
-## A.1. IETF VRF Test Vectors
+## B.1. IETF VRF Test Vectors
 
 Schema:
 
@@ -520,7 +556,7 @@ b0e1f208f9d6e5b310b92014ea7ef3011e649dab038804759f3766e01029d623,
 ce7f4a2354a6c3f97aee6cc60c6aa4c4430b12ed0f0ef304b326c776618d7609,
 ```
 
-## A.2. Pedersen VRF Test Vectors
+## B.2. Pedersen VRF Test Vectors
 
 Schema:
 
@@ -680,7 +716,7 @@ bd8c0c1e5e04577c8836e45fb64131d1275309fe28e1d4334b230e3aa639da1a,
 d93ccbd393ed88c8165b0a01aabe28c56a53b43e527e7927eeadff006dd22114,
 ```
 
-## A.3. Ring VRF Test Vectors
+## B.3. Ring VRF Test Vectors
 
 KZG SRS parameters are derived from Zcash BLS12-381 [powers of tau ceremony](https://zfnd.org/conclusion-of-the-powers-of-tau-ceremony).
 
