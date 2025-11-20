@@ -7,6 +7,8 @@ publish =  false
 [dependencies]
 ark-vrf ={ version = "0.1.0", features = ["bandersnatch", "ring"] }
 hex = "0.4.3"
+hex-literal = "1.1.0"
+sp-core = "34.0.0"
 
 # Deterministic ring proof.
 # WARNING: not for production, used to produce specification test vectors.

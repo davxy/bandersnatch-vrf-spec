@@ -8,6 +8,9 @@ use bandersnatch::{
     RingProofParams, Secret,
 };
 
+use hex_literal::hex;
+use sp_core::H256;
+
 const RING_SIZE: usize = 1023;
 
 // This is the IETF `Prove` procedure output as described in section 2.2
@@ -254,6 +257,23 @@ fn main() {
     let padding_point = Public::from(RingProofParams::padding_point());
     ring[2] = padding_point;
     ring[7] = padding_point;
+
+
+    let bandersnatch_public_keys: [H256; 6] = [
+        H256(hex!("ff71c6c03ff88adb5ed52c9681de1629a54e702fc14729f6b50d2f0a76f185b3")),
+        H256(hex!("dee6d555b82024f1ccf8a1e37e60fa60fd40b1958c4bb3006af78647950e1b91")),
+        H256(hex!("9326edb21e5541717fde24ec085000b28709847b8aab1ac51f84e94b37ca1b66")),
+        H256(hex!("0746846d17469fb2f95ef365efcab9f4e22fa1feb53111c995376be8019981cc")),
+        H256(hex!("151e5c8fe2b9d8a606966a79edd2f9e5db47e83947ce368ccba53bf6ba20a40b")),
+        H256(hex!("2105650944fcd101621fd5bb3124c9fd191d114b7ad936c1d79d734f9f21392e")),
+    ];
+
+    let mut ring: Vec<_> = vec![];
+    for key in bandersnatch_public_keys.iter() {
+        let item = Public::deserialize_compressed_unchecked(&key[..])
+                .unwrap_or_else(|_| Public::from(RingProofParams::padding_point()));
+        ring.push(item);
+    }
 
     let prover = Prover::new(ring.clone(), prover_key_index);
     let verifier = Verifier::new(ring);
