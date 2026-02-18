@@ -1,11 +1,11 @@
 [package]
 name = "ark-vrf-bandersnatch-example"
-version = "0.1.0"
-edition = "2021"
+version = "0.1.1"
+edition = "2024"
 publish =  false
 
 [dependencies]
-ark-vrf ={ version = "0.1.0", features = ["bandersnatch", "ring"] }
+ark-vrf ={ version = "0.2.0", features = ["bandersnatch", "ring", "asm"] }
 hex = "0.4.3"
 
 # Deterministic ring proof.
