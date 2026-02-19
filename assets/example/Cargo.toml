@@ -5,7 +5,7 @@ edition = "2024"
 publish =  false
 
 [dependencies]
-ark-vrf ={ version = "0.2.0", features = ["bandersnatch", "ring", "asm"] }
+ark-vrf ={ version = "0.2.1", features = ["bandersnatch", "ring", "asm"] }
 hex = "0.4.3"
 
 # Deterministic ring proof.
