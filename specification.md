@@ -290,7 +290,7 @@ For all the other configurable parameters and external functions we adhere as
 much as possible to the Bandersnatch cipher suite for IETF VRF described in
 section 2.1 of this specification.
 
-### 3.2. Prove
+## 3.2. Prove
 
 **Input**:
 
@@ -317,7 +317,7 @@ section 2.1 of this specification.
 9. $s_b \gets k_b + c \cdot b$
 10. $\pi \gets (\bar{Y}, R, O_k, s, s_b)$
 
-## 3.3. Verify  
+## 3.3. Verify
 
 **Input**:  
 
@@ -438,7 +438,7 @@ For convenience and to facilitate deterministic key generation (e.g., from
 mnemonic phrases), we suggest the following method to derive a secret scalar
 from an arbitrary byte string seed. This procedure is not mandated by the
 specification and may be replaced by any secure method that produces uniformly
-distributed scalars in the field $F$.
+distributed scalars in the field $\F$.
 
 **Input**:
 
@@ -458,7 +458,33 @@ The resulting $secret$ scalar is used as the secret key in subsequent operations
 
 Note: Unlike Ed25519-style key generation, this procedure does not apply
 clamping or any bit-masking to the scalar. The scalar is derived via a direct
-modular reduction, which ensures a uniform distribution over $F$.
+modular reduction, which ensures a uniform distribution over $\F$.
+
+## A.2. Deterministic Blinding Factor Generation
+
+For Pedersen VRF, the blinding factor may be generated deterministically from
+the secret key, VRF input point, and additional data. This procedure is loosely
+inspired by the challenge generation but uses a distinct domain separator.
+
+**Input**:
+
+- $sk \in \F$: Secret scalar.
+- $I \in \G$: VRF input point.
+- $ad \in \S^*$: Additional data octet-string.
+
+**Output**:
+
+- $b \in \F$: Blinding factor scalar.
+
+**Steps**:
+
+1. $h \gets \texttt{hash}(\texttt{suite\_string}\;\Vert\;0\text{xCC}\;\Vert\;\texttt{int\_to\_string}(sk)\;\Vert\;\texttt{point\_to\_string}(I)\;\Vert\;ad\;\Vert\;0\text{x00})$
+2. $b \gets \texttt{string\_to\_int}(h)$
+
+With `hash`, `int_to_string`, `point_to_string` and `string_to_int` as defined
+in section 2.1. Note that `string_to_int` here operates on the full hash output
+(`hLen` = 64 bytes); the modular reduction ensures a near-uniform distribution
+over $\F$.
 
 # Appendix B. Test Vectors
 

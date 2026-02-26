@@ -536,7 +536,7 @@ For all the other configurable parameters and external functions we
 adhere as much as possible to the Bandersnatch cipher suite for IETF VRF
 described in section 2.1 of this specification.
 
-\subsubsection{3.2. Prove}\label{prove-1}
+\subsection{3.2. Prove}\label{prove-1}
 
 \textbf{Input}:
 
@@ -823,7 +823,7 @@ For convenience and to facilitate deterministic key generation (e.g.,
 from mnemonic phrases), we suggest the following method to derive a
 secret scalar from an arbitrary byte string seed. This procedure is not
 mandated by the specification and may be replaced by any secure method
-that produces uniformly distributed scalars in the field \(F\).
+that produces uniformly distributed scalars in the field \(\bold{F}\).
 
 \textbf{Input}:
 
@@ -861,7 +861,52 @@ operations.
 Note: Unlike Ed25519-style key generation, this procedure does not apply
 clamping or any bit-masking to the scalar. The scalar is derived via a
 direct modular reduction, which ensures a uniform distribution over
-\(F\).
+\(\bold{F}\).
+
+\subsection{A.2. Deterministic Blinding Factor
+Generation}\label{a.2.-deterministic-blinding-factor-generation}
+
+For Pedersen VRF, the blinding factor may be generated deterministically
+from the secret key, VRF input point, and additional data. This
+procedure is loosely inspired by the challenge generation but uses a
+distinct domain separator.
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(sk \in \bold{F}\): Secret scalar.
+\item
+  \(I \in \bold{G}\): VRF input point.
+\item
+  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(b \in \bold{F}\): Blinding factor scalar.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \(h \gets \texttt{hash}(\texttt{suite\_string}\;\Vert\;0\text{xCC}\;\Vert\;\texttt{int\_to\_string}(sk)\;\Vert\;\texttt{point\_to\_string}(I)\;\Vert\;ad\;\Vert\;0\text{x00})\)
+\item
+  \(b \gets \texttt{string\_to\_int}(h)\)
+\end{enumerate}
+
+With \texttt{hash}, \texttt{int\_to\_string}, \texttt{point\_to\_string}
+and \texttt{string\_to\_int} as defined in section 2.1. Note that
+\texttt{string\_to\_int} here operates on the full hash output
+(\texttt{hLen} = 64 bytes); the modular reduction ensures a near-uniform
+distribution over \(\bold{F}\).
 
 \section{Appendix B. Test Vectors}\label{appendix-b.-test-vectors}
 
