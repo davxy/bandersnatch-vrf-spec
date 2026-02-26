@@ -3,7 +3,7 @@ title: Bandersnatch VRF-AD Specification
 author:
   - Davide Galassi
   - Seyed Hosseini
-date: 23 May 2025 - Draft 28
+date: 26 Feb 2026 - Draft 29
 ---
 
 \newcommand{\G}{\bold{G}}
@@ -97,19 +97,45 @@ Here:
 - $\Pi \gets \texttt{encode\_compressed}((O, \pi))$, where $\pi$ is the proof
   specific to the underlying scheme, and $O$ represents the VRF output point.
 
-## 1.9. Challenge Procedure
+## 1.9. Nonce Procedure
 
-Challenge construction mostly follows the procedure given in section 5.4.3 of
-[RFC-9381] [@RFC9381] with some tweaks to include additional data.
+Nonce generation extends the `ECVRF_nonce_generation` procedure from section
+5.4.2.2 of [RFC-9381] [@RFC9381] to incorporate additional context, ensuring
+the nonce varies with all inputs to the prove function. This prevents nonce
+reuse when the same secret key and VRF input are signed with different
+additional data or, in the Pedersen VRF case, different blinding factors.
 
-**Input**:  
+**Input**:
+
+- $sk \in \F$: Secret scalar.
+- $I \in \G$: VRF input point.
+- $ad \in \S^*$: Additional data octet-string.
+
+**Output**:
+
+- $k \in \F$: Nonce scalar.
+
+**Steps**:
+
+1. $h \gets \texttt{point\_to\_string}(I)\;\Vert\;ad$
+2. $k \gets \texttt{ECVRF\_nonce\_generation}(\texttt{int\_to\_string}(sk),\;h)$
+
+With `ECVRF_nonce_generation` as specified in section 5.4.2.2 of [RFC-9381],
+and `point_to_string`, `int_to_string` as defined in section 2.1.
+
+## 1.10. Challenge Procedure
+
+Challenge construction extends the `ECVRF_challenge_generation` procedure from
+section 5.4.3 of [RFC-9381] [@RFC9381] to include additional data.
+
+**Input**:
 
 - $\bar{P} \in \G^n$: Sequence of $n$ points.
 - $ad \in \S^*$: Additional data octet-string.
 
-**Output**:  
+**Output**:
 
-- $c \in \F$: Challenge scalar.  
+- $c \in \F$: Challenge scalar.
 
 **Steps**:
 
@@ -143,7 +169,9 @@ section 5.5 of [RFC-9381].
 
   - Compressed: $_{\texttt{0x664197ccb667315e6064e4ee81ad8c3586d5dcba508b7d150f3e12da9e666c2a}}$
 
-- `cLen` = 32.
+- `cLen` = 16. This value provides 128 bits of security, matching the effective
+  security level of the Bandersnatch elliptic curve, and it ensures that the
+  statistical bias during the modular reduction of the challenge is negligible.
 
 - The public key generation primitive is $pk = sk \cdot G$, with $sk$ the secret
   key scalar and $G$ the group generator. In this cipher suite, the secret scalar
@@ -155,8 +183,8 @@ section 5.5 of [RFC-9381].
 
 - The `int_to_string` function encodes into the 32 octets little endian representation.
  
-- The `string_to_int` function decodes from the 32 octets little endian representation
-  eventually reducing modulo the prime field order.
+- The `string_to_int` function decodes an octet-string as a little-endian
+  integer eventually reducing modulo the prime field order.
 
 - The `point_to_string` function converts a point in $\G$ to an octet-string using
   compressed form. The $y$ coordinate is encoded using `int_to_string` function
@@ -194,15 +222,15 @@ section 5.5 of [RFC-9381].
 
 1. $O \gets x \cdot I$
 2. $Y \gets x \cdot G$
-3. $k \gets \texttt{nonce}(x, I)$
+3. $k \gets \texttt{nonce}(x, I, ad)$
 4. $c \gets \texttt{challenge}(Y, I, O, k \cdot G, k \cdot I, ad)$
 5. $s \gets k + c \cdot x$
 6. $\pi \gets (c, s)$
 
 **Externals**:
 
-- $\texttt{nonce}$: refer to section 5.4.2.2 of [RFC-9381].
-- $\texttt{challenge}$: refer to section 1.6 of this specification.
+- $\texttt{nonce}$: refer to section 1.9 of this specification.
+- $\texttt{challenge}$: refer to section 1.10 of this specification.
 
 ## 2.3. Verify
 
@@ -221,10 +249,11 @@ section 5.5 of [RFC-9381].
 **Steps**:
 
 1. $(c, s) \gets \pi$
-2. $U \gets s \cdot G - c \cdot Y$
-3. $V \gets s \cdot I - c \cdot O$
-4. $c' \gets \texttt{challenge}(Y, I, O, U, V, ad)$
-5. $\theta \gets \top \text{ if } c = c' \text{ else } \bot$
+2. If $Y$ or $O$ are not valid points in $\G$, output $\bot$.
+3. $U \gets s \cdot G - c \cdot Y$
+4. $V \gets s \cdot I - c \cdot O$
+5. $c' \gets \texttt{challenge}(Y, I, O, U, V, ad)$
+6. $\theta \gets \top \text{ if } c = c' \text{ else } \bot$
 
 **Externals**:
 
@@ -278,8 +307,8 @@ section 2.1 of this specification.
 **Steps**:
 
 1. $O \gets x \cdot I$
-2. $k \gets \texttt{nonce}(x, I)$
-3. $k_b \gets \texttt{nonce}(b, I)$
+2. $k \gets \texttt{nonce}(x, I, \texttt{int\_to\_string}(b)\;\Vert\;ad)$
+3. $k_b \gets \texttt{nonce}(b, I, \texttt{int\_to\_string}(x)\;\Vert\;ad)$
 4. $\bar{Y} \gets x \cdot G + b \cdot B$
 5. $R \gets k \cdot G + k_b \cdot B$
 6. $O_k \gets k \cdot I$
@@ -304,10 +333,11 @@ section 2.1 of this specification.
 **Steps**:
 
 1. $(\bar{Y}, R, O_k, s, s_b) \gets \pi$
-2. $c \gets \texttt{challenge}(\bar{Y}, I, O, R, O_k, ad)$
-3. $\theta_0 \gets \top \text{ if } O_k + c \cdot O = I \cdot s \text{ else } \bot$
-4. $\theta_1 \gets \top \text{ if } R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B \text{ else } \bot$
-5. $\theta = \theta_0 \land \theta_1$
+2. If $\bar{Y}, R, O_k$ or $O$ are not valid points in $\G$, output $\bot$.
+3. $c \gets \texttt{challenge}(\bar{Y}, I, O, R, O_k, ad)$
+4. $\theta_0 \gets \top \text{ if } O_k + c \cdot O = I \cdot s \text{ else } \bot$
+5. $\theta_1 \gets \top \text{ if } R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B \text{ else } \bot$
+6. $\theta = \theta_0 \land \theta_1$
 
 # 4. Ring VRF
 
@@ -432,7 +462,10 @@ modular reduction, which ensures a uniform distribution over $F$.
 
 # Appendix B. Test Vectors
 
-The test vectors in this section were generated using `ark-ec-vrf` libraries
+**TODO**: The test vectors below are stale and must be regenerated after the
+nonce procedure change (section 1.9) is applied to the reference implementation.
+
+The test vectors in this section were generated using `ark-vrf` libraries
 revision [`bf2d1cf`](https://github.com/davxy/ark-vrf/tree/bf2d1cf8ec648cf57b0eb1252639798481e05a29).
 
 ## B.1. IETF VRF Test Vectors
