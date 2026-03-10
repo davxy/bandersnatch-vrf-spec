@@ -53,13 +53,12 @@ Domain separation tags used throughout the protocol:
 
 | Tag | Value | Usage |
 |-----|-------|-------|
-| HashToCurveTai | 0x01 | Hash-to-curve (try-and-increment) |
-| Challenge | 0x02 | Challenge derivation |
-| PointToHash | 0x03 | VRF output hashing |
-| Delinearize | 0x04 | Delinearization scalars |
-| NonceExpand | 0x05 | Nonce secret expansion |
-| Nonce | 0x06 | Nonce derivation |
-| PedersenBlinding | 0xCC | Pedersen blinding factor |
+| Challenge | 0x01 | Challenge derivation |
+| NonceExpand | 0x02 | Nonce secret expansion |
+| Nonce | 0x03 | Nonce derivation |
+| PointToHash | 0x04 | VRF output hashing |
+| Delinearize | 0x05 | Delinearization scalars |
+| PedersenBlinding | 0x80 | Pedersen blinding factor |
 
 ## 1.2. Secret Key Generation
 
@@ -115,7 +114,7 @@ transcript-based point-to-hash procedure.
 **Steps**:
 
 1. $T \gets \texttt{new}(\text{SUITE\_ID})$
-2. $T.\texttt{absorb}(0\text{x03})$
+2. $T.\texttt{absorb}(\texttt{PointToHash})$
 3. $T.\texttt{absorb}(\texttt{serialize}(O))$
 4. $o \gets T.\texttt{squeeze}(N)$
 
@@ -146,7 +145,7 @@ squeezed from it. After the first squeeze, no further absorbs are permitted.
 - $\texttt{new}(label)$: Initialize with a domain-separation label.
 - $\texttt{absorb}(data)$: Feed bytes into the hash state. Must not be called after squeeze.
 - $\texttt{squeeze}(n) \to \S^n$: Produce $n$ output bytes.
-- $\texttt{clone}()$: Fork the transcript state.
+- $\texttt{fork}()$: Clone the transcript state.
 
 **Concrete construction** (`HashTranscript<SHA-512>`):
 
@@ -163,7 +162,7 @@ $$block_i = \text{SHA-512}(seed \;\Vert\; i \text{ as u32 LE}) \quad \text{for }
 Each block yields 64 bytes. Output is read sequentially across blocks; partial
 block state is preserved between squeeze calls.
 
-*Clone*: duplicates the full internal state (including any partial block position
+*Fork*: duplicates the full internal state (including any partial block position
 if squeezing has begun).
 
 ## 1.10. VRF Transcript
@@ -191,9 +190,9 @@ a single pair, and absorbs additional data.
      - If $n = 0$: $(I_m, O_m) \gets (\mathcal{O}, \mathcal{O})$
      - If $n = 1$: $(I_m, O_m) \gets (I_0, O_0)$
      - If $n \geq 2$:
-       $T' \gets T.\texttt{clone}()$,
-       $T'.\texttt{absorb}(0\text{x04} \;\Vert\; n \text{ as u32 LE})$,
-       squeeze $n$ scalars $z_i \gets \texttt{from\_le\_bytes\_mod\_order}(T'.\texttt{squeeze}(\text{CHALLENGE\_LEN}))$,
+       $T' \gets T.\texttt{fork}()$,
+       $T'.\texttt{absorb}(\texttt{Delinearize} \;\Vert\; n \text{ as u32 LE})$,
+       squeeze $n$ scalars $z_i \gets \texttt{from\_le\_bytes\_mod\_order}(T'.\texttt{squeeze}(\texttt{challenge\_len}))$,
        $I_m \gets \sum_{i} z_i \cdot I_i$,
        $O_m \gets \sum_{i} z_i \cdot O_i$
 4. $T.\texttt{absorb}(\texttt{len}(ad) \text{ as u32 LE} \;\Vert\; ad)$
@@ -216,13 +215,13 @@ nonce to the I/O pairs and additional data.
 
 **Steps**:
 
-1. $T' \gets T.\texttt{clone}()$
-2. $T'.\texttt{absorb}(0\text{x05} \;\Vert\; \texttt{serialize}(sk))$
+1. $T' \gets T.\texttt{fork}()$
+2. $T'.\texttt{absorb}(\texttt{NonceExpand} \;\Vert\; \texttt{serialize}(sk))$
 3. $h \gets T'.\texttt{squeeze}(64)$
-4. $T.\texttt{absorb}(0\text{x06} \;\Vert\; h[32..64])$
+4. $T.\texttt{absorb}(\texttt{Nonce} \;\Vert\; h[32..64])$
 5. $k \gets \texttt{from\_le\_bytes\_mod\_order}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))$
 
-Note: $T$ is consumed (mutated then squeezed). Callers must pass clones where
+Note: $T$ is consumed (mutated then squeezed). Callers must pass forks where
 the transcript is needed afterwards.
 
 ## 1.12. Challenge Procedure
@@ -241,9 +240,9 @@ squeezing.
 
 **Steps**:
 
-1. $T.\texttt{absorb}(0\text{x02})$
+1. $T.\texttt{absorb}(\texttt{Challenge})$
 2. For each $P_i$ in $\bar{P}$: $T.\texttt{absorb}(\texttt{serialize}(P_i))$
-3. $c \gets \texttt{from\_le\_bytes\_mod\_order}(T.\texttt{squeeze}(\text{CHALLENGE\_LEN}))$
+3. $c \gets \texttt{from\_le\_bytes\_mod\_order}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
 
 
 # 2. IETF VRF
@@ -329,7 +328,7 @@ section 5.5 of [RFC-9381].
 
 1. $Y \gets x \cdot G$
 2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)$
-3. $k \gets \texttt{nonce}(x, T.\texttt{clone}())$
+3. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
 4. $k_b \gets k \cdot G$, $\quad k_h \gets k \cdot I_m$
 5. $c \gets \texttt{challenge}([Y, k_b, k_h], T)$
 6. $s \gets k + c \cdot x$
@@ -400,7 +399,7 @@ configuration.
 1. $Y \gets x \cdot G$
 2. $\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}$ (prepend Schnorr pair)
 3. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}', ad)$
-4. $k \gets \texttt{nonce}(x, T.\texttt{clone}())$
+4. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
 5. $R \gets k \cdot I_m$
 6. $c \gets \texttt{challenge}([R], T)$
 7. $s \gets k + c \cdot x$
@@ -474,10 +473,10 @@ section 2.1 of this specification.
 **Steps**:
 
 1. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)$
-2. $b \gets \texttt{blinding}(x, T.\texttt{clone}())$ (see Appendix A.2)
+2. $b \gets \texttt{blinding}(x, T.\texttt{fork}())$ (see Appendix A.2)
 3. $\bar{Y} \gets x \cdot G + b \cdot B$
-4. $T_k \gets T.\texttt{clone}()$, $\quad T_k.\texttt{absorb}(\texttt{serialize}(b))$, $\quad k \gets \texttt{nonce}(x, T_k)$
-5. $T_{kb} \gets T.\texttt{clone}()$, $\quad T_{kb}.\texttt{absorb}(\texttt{serialize}(x))$, $\quad k_b \gets \texttt{nonce}(b, T_{kb})$
+4. $T_k \gets T.\texttt{fork}()$, $\quad T_k.\texttt{absorb}(\texttt{serialize}(b))$, $\quad k \gets \texttt{nonce}(x, T_k)$
+5. $T_{kb} \gets T.\texttt{fork}()$, $\quad T_{kb}.\texttt{absorb}(\texttt{serialize}(x))$, $\quad k_b \gets \texttt{nonce}(b, T_{kb})$
 6. $R \gets k \cdot G + k_b \cdot B$
 7. $O_k \gets k \cdot I_m$
 8. $c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)$
@@ -652,7 +651,7 @@ function (section 1.11) with a distinct domain separator.
 
 **Steps**:
 
-1. $T.\texttt{absorb}(0\text{xCC})$
+1. $T.\texttt{absorb}(\texttt{PedersenBlinding})$
 2. $b \gets \texttt{nonce}(sk, T)$
 
 # Appendix B. Test Vectors
