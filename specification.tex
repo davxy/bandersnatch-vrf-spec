@@ -128,6 +128,7 @@ curve, constructed over the BLS12-381 scalar field as specified in
 \subsection{1.1. Common Definitions}\label{common-definitions}
 
 \begin{itemize}
+\tightlist
 \item
   \(\bold{G}\): Bandersnatch curve cyclic group of prime order \(r\).
 \item
@@ -138,8 +139,30 @@ curve, constructed over the BLS12-381 scalar field as specified in
   (\(*\) for arbitrary length).
 \item
   \(\mathcal{O}\): Identity point of \(\bold{G}\).
+\end{itemize}
+
+The EC group \(\bold{G}\) is the prime subgroup of the Bandersnatch
+elliptic curve, in Twisted Edwards form, with finite field and curve
+parameters as specified in
+\href{https://eprint.iacr.org/2021/1152}{MSZ21} {[}4{]}. For this group,
+\texttt{fLen} = \texttt{qLen} = \(32\) and \texttt{cofactor} = \(4\).
+
+\begin{itemize}
+\item
+  \texttt{suite\_string} = \texttt{"Bandersnatch\_SHA-512\_ELL2"}.
+\item
+  \texttt{encode\_to\_curve\_salt} = \texttt{""} (empty - no salt).
 \item
   \(G \in \bold{G}\): Prime order group generator.
+  \[_{G_x = 18886178867200960497001835917649091219057080094937609519140440539760939937304}\]
+  \[_{G_y = 19188667384257783945677642223292697773471335439753913231509108946878080696678}\]
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Compressed:
+    \(_{\texttt{0x664197ccb667315e6064e4ee81ad8c3586d5dcba508b7d150f3e12da9e666c2a}}\)
+  \end{itemize}
 \item
   \(x \in \bold{F}\): Secret key scalar.
 \item
@@ -155,10 +178,13 @@ curve, constructed over the BLS12-381 scalar field as specified in
 \item
   \(T\): Transcript state (section 1.9).
 \item
-  \(\texttt{serialize}(P)\): Compressed point encoding (section 2.1).
+  \(\texttt{serialize}(P)\): Encodes a point in compressed form. The
+  \(y\) coordinate is serialized in little-endian and the most
+  significant bit of the last octet encodes the sign of \(x\). This
+  gives \texttt{ptLen} = \texttt{fLen} = \(32\).
 \item
-  \(\texttt{serialize}(s)\): Little-endian scalar encoding (section
-  2.1).
+  \(\texttt{serialize}(s)\): Encodes a scalar into 32 octets in
+  little-endian representation.
 \item
   \(\texttt{le32}(n)\): Encode integer \(n\) as a 4-byte little-endian
   octet string.
@@ -166,6 +192,13 @@ curve, constructed over the BLS12-381 scalar field as specified in
   \(\texttt{from\_le\_bytes\_mod\_order}(buf)\): Interpret octet string
   \(buf\) as a little-endian integer and reduce modulo the prime field
   order \(r\).
+\end{itemize}
+
+Point deserialization MUST output ``INVALID'' if the octet-string does
+not decode to a point on the prime subgroup \(\bold{G}\).
+
+\begin{itemize}
+\tightlist
 \item
   \texttt{challenge\_len} = 16 bytes (128-bit security).
 \item
@@ -222,7 +255,7 @@ The domain separation tag is:
 where \(\texttt{h2c\_suite\_id}\) =
 \texttt{"Bandersnatch\_XMD:SHA-512\_ELL2\_RO\_"} and
 \(\texttt{suite\_string}\) = \texttt{"Bandersnatch\_SHA-512\_ELL2"}
-(section 2.1).
+(section 1.1).
 
 \[I \gets \texttt{hash\_to\_curve}(i)\]
 
@@ -487,91 +520,7 @@ which is extended with a transcript-based Fiat-Shamir transform, support
 for additional data (\(ad\)), and multiple I/O pairs via
 delinearization.
 
-\subsection{2.1. Configuration}\label{configuration}
-
-Configuration follows the \emph{``cipher suite''} guidelines defined in
-section 5.5 of
-\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}.
-
-\begin{itemize}
-\item
-  \texttt{suite\_string} = \texttt{"Bandersnatch\_SHA-512\_ELL2"}.
-\item
-  The EC group \(\bold{G}\) is the prime subgroup of the Bandersnatch
-  elliptic curve, in Twisted Edwards form, with finite field and curve
-  parameters as specified in
-  \href{https://eprint.iacr.org/2021/1152}{MSZ21}. For this group,
-  \texttt{fLen} = \texttt{qLen} = \(32\) and \texttt{cofactor} = \(4\).
-\item
-  The prime subgroup generator \(G \in \bold{G}\) is defined as follows:
-  \[_{G_x = 18886178867200960497001835917649091219057080094937609519140440539760939937304}\]
-  \[_{G_y = 19188667384257783945677642223292697773471335439753913231509108946878080696678}\]
-
-  \begin{itemize}
-  \tightlist
-  \item
-    Compressed:
-    \(_{\texttt{0x664197ccb667315e6064e4ee81ad8c3586d5dcba508b7d150f3e12da9e666c2a}}\)
-  \end{itemize}
-\item
-  \texttt{challenge\_len} = 16. This value provides 128 bits of
-  security, matching the effective security level of the Bandersnatch
-  elliptic curve, and it ensures that the statistical bias during the
-  modular reduction of the challenge is negligible.
-\item
-  \texttt{expanded\_scalar\_len} = 48. Computed as
-  \(\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil\), ensuring negligible
-  bias during modular reduction for nonce scalars.
-\item
-  The public key generation primitive is \(pk = sk \cdot G\), with
-  \(sk\) the secret key scalar and \(G\) the group generator. In this
-  cipher suite, the secret scalar \texttt{x} is equal to the secret key
-  \texttt{sk}.
-\item
-  \texttt{encode\_to\_curve\_salt} = \texttt{""} (empty - no salt)
-\item
-  The transcript is
-  \texttt{HashTranscript\textless{}SHA-512\textgreater{}} as defined in
-  section 1.9.
-\item
-  Nonce generation uses the transcript-based procedure in section 1.11.
-\item
-  Challenge generation uses the transcript-based procedure in section
-  1.12.
-\item
-  The \texttt{int\_to\_string} (equivalently \(\texttt{serialize}\) for
-  scalars) function encodes into the 32 octets little endian
-  representation.
-\item
-  The \texttt{string\_to\_int} function decodes an octet-string as a
-  little-endian integer eventually reducing modulo the prime field
-  order.
-\item
-  The \texttt{point\_to\_string} (equivalently \(\texttt{serialize}\)
-  for points) function converts a point in \(\bold{G}\) to an
-  octet-string using compressed form. The \(y\) coordinate is encoded
-  using \texttt{int\_to\_string} function and the most significant bit
-  of the last octet is used to keep track of \(x\) sign. This implies
-  that \texttt{ptLen\ =\ flen\ =\ 32}.
-\item
-  The \texttt{string\_to\_point} function converts an octet-string to a
-  point on \(\bold{G}\). The string most significant bit is removed to
-  recover the \(x\) coordinate as function of \(y\), which is first
-  decoded from the rest of the string using \texttt{int\_to\_string}
-  procedure. This function MUST output ``INVALID'' if the octet-string
-  does not decode to a point on the prime subgroup \(\bold{G}\).
-\item
-  The hash function \texttt{hash} is SHA-512 as specified in
-  \href{https://datatracker.ietf.org/doc/rfc6234}{RFC-6234} {[}6{]},
-  with \texttt{hLen} = 64.
-\item
-  The \texttt{ECVRF\_encode\_to\_curve} function uses the
-  \emph{Elligator 2} hash-to-curve construction described in section
-  1.4, following section 5.4.1.2 of
-  \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}.
-\end{itemize}
-
-\subsection{2.2. Prove}\label{prove}
+\subsection{2.1. Prove}\label{prove}
 
 \textbf{Input}:
 
@@ -618,7 +567,7 @@ section 5.5 of
 The challenge scalar \(c\) is serialized as the first
 \texttt{challenge\_len} bytes of the little-endian representation.
 
-\subsection{2.3. Verify}\label{verify}
+\subsection{2.2. Verify}\label{verify}
 
 \textbf{Input}:
 
@@ -681,12 +630,7 @@ can forge arbitrary outputs for that input, because the delinearization
 merges the Schnorr and VRF pairs into a single check that collapses when
 all points are multiples of \(G\).
 
-\subsection{3.1. Configuration}\label{configuration-1}
-
-Refer to section 2.1 for shared parameters, serialization, and
-hash-to-curve configuration.
-
-\subsection{3.2. Prove}\label{prove-1}
+\subsection{3.1. Prove}\label{prove-1}
 
 \textbf{Input}:
 
@@ -733,7 +677,7 @@ hash-to-curve configuration.
   \(\pi \gets (R, s)\)
 \end{enumerate}
 
-\subsection{3.3. Verify}\label{verify-1}
+\subsection{3.2. Verify}\label{verify-1}
 
 \textbf{Input}:
 
@@ -793,12 +737,7 @@ This specification mostly follows the design proposed by
 with some details about blinding base point value and challenge
 generation procedure.
 
-\subsection{4.1. Configuration}\label{configuration-2}
-
-Pedersen VRF is configured for prime subgroup \(\bold{G}\) of
-Bandersnatch elliptic curve \(E\), in Twisted Edwards form, defined in
-\href{https://eprint.iacr.org/2021/1152}{MSZ21} {[}4{]} with
-\emph{blinding base} \(B \in \bold{G}\) defined as follows:
+The \emph{blinding base} \(B \in \bold{G}\) is defined as follows:
 \[_{B_x = 6150229251051246713677296363717454238956877613358614224171740096471278798312}\]
 \[_{B_y = 28442734166467795856797249030329035618871580593056783094884474814923353898473}\]
 
@@ -809,11 +748,7 @@ Bandersnatch elliptic curve \(E\), in Twisted Edwards form, defined in
   \(_{\texttt{0xe93da06b869766b158d20b843ec648cc68e0b7ba2f7083acf0f154205d04e23e}}\)
 \end{itemize}
 
-For all the other configurable parameters and external functions we
-adhere as much as possible to the Bandersnatch cipher suite for IETF VRF
-described in section 2.1 of this specification.
-
-\subsection{4.2. Prove}\label{prove-2}
+\subsection{4.1. Prove}\label{prove-2}
 
 \textbf{Input}:
 
@@ -877,7 +812,7 @@ and \(k_b\) is bound to \(x\) (step 5). This prevents secret/blinding
 recovery from two proofs with the same (secret, input, ad) but different
 blinding factors.
 
-\subsection{4.3. Verify}\label{verify-2}
+\subsection{4.2. Verify}\label{verify-2}
 
 \textbf{Input}:
 
@@ -929,14 +864,9 @@ the committed key \(\bar{Y}\) from the proof.
 Anonymized ring VRF based on Pedersen VRF (section 4) and Ring Proof as
 proposed in \href{https://github.com/davxy/ring-proof-spec}{VG24}.
 
-\subsection{5.1. Configuration}\label{configuration-3}
-
-Ring proof is configured to work together with Pedersen VRF as presented
-in this specification.
-
-The following configuration should be applied to specialize
-\href{https://github.com/davxy/ring-proof-spec}{VG24} in order to
-instance the concrete scheme.
+The following configuration specializes
+\href{https://github.com/davxy/ring-proof-spec}{VG24} for the concrete
+scheme:
 
 \begin{itemize}
 \item
@@ -1000,9 +930,8 @@ instance the concrete scheme.
   \end{itemize}
 
   A point with unknown discrete logarithm derived using the
-  \texttt{ECVRF\_encode\_to\_curve} function as described in IETF suite
-  {[}Configuration{]} section with input the string:
-  \texttt{"ring-proof-pad"}.
+  \texttt{ECVRF\_encode\_to\_curve} function as described in section 1.4
+  with input the string: \texttt{"ring-proof-pad"}.
 \item
   Polynomials domain (\(\langle \omega \rangle = \mathbb{D}\))
   generator:
@@ -1011,7 +940,7 @@ instance the concrete scheme.
   \(|\mathbb{D}| = 2048\)
 \end{itemize}
 
-\subsection{5.2. Prove}\label{prove-3}
+\subsection{5.1. Prove}\label{prove-3}
 
 \textbf{Input}:
 
@@ -1054,7 +983,7 @@ instance the concrete scheme.
 The blinding factor \(b\) is derived internally by Pedersen prove
 (section 4.2, step 2) and forwarded to the ring prover.
 
-\subsection{5.3. Verify}\label{verify-3}
+\subsection{5.2. Verify}\label{verify-3}
 
 \textbf{Input}:
 
@@ -1908,11 +1837,6 @@ Curve Built over the BLS12-381 Scalar Field} 2021.
 5. Internet Engineering Task Force
 \emph{\href{https://datatracker.ietf.org/doc/rfc9380}{{Hashing to
 Elliptic Curves}}}; {RFC Editor}, 2023;
-
-\bibitem[\citeproctext]{ref-RFC6234}
-6. Internet Engineering Task Force
-\emph{\href{https://datatracker.ietf.org/doc/rfc6234}{{US Secure Hash
-Algorithms}}}; {RFC Editor}, 2011;
 
 \end{CSLReferences}
 
