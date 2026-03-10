@@ -70,8 +70,21 @@ decode to a point on the prime subgroup $\G$.
 
 ## 1.4. Constants
 
-- `suite_string` = `"Bandersnatch_SHA-512_ELL2"`.
-- `h2c_suite_id` = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"`.
+- `suite_id` = `[0x01, 0x01, 0x01, 0x01]` — a 4-byte fixed-width identifier encoding
+  the protocol profile:
+
+| Name | Byte | Value | Meaning |
+|---|---|---|---|
+| version | 0 | 0x01 | Protocol profile (v1) |
+| curve | 1 | 0x01 | Bandersnatch |
+| hash | 2 | 0x01 | SHA-512 |
+| h2c | 3 | 0x01 | Elligator 2, random oracle |
+
+  The version byte bundles several tightly-coupled choices: transcript construction
+  (HashTranscript), nonce algorithm (RFC-8032), challenge derivation (transcript
+  squeeze), point encoding (compressed little-endian), and security level (128-bit).
+  Bump this byte when any of these changes.
+
 - `challenge_len` = 16 bytes (128-bit security).
 - `expanded_scalar_len` = $\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil$ = 48 bytes.
 
@@ -107,8 +120,10 @@ $$I \gets \texttt{hash\_to\_curve}(DST, i)$$
 
 The domain separation tag is:
 
-$$DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_string}$$
+$$DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_id}$$
 
+where `h2c_suite_id` = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"` is the RFC-9380
+suite identifier string determined by the curve, hash, and h2c bytes of `suite_id`.
 
 ## 1.7. VRF Output
 
@@ -130,7 +145,7 @@ using a transcript-based point-to-hash procedure.
 
 **Steps**:
 
-1. $T \gets \texttt{new}(\text{SUITE\_ID})$
+1. $T \gets \texttt{new\_transcript}()$
 2. $T.\texttt{absorb}(\texttt{PointToHash})$
 3. $T.\texttt{absorb}(\texttt{enc\_point}(O))$
 4. $o \gets T.\texttt{squeeze}(N)$
@@ -159,15 +174,15 @@ squeezed from it. After the first squeeze, no further absorbs are permitted.
 
 **Abstract interface**:
 
-- $\texttt{new}(label)$: Initialize with a domain-separation label.
+- $\texttt{new\_transcript}()$: Create a fresh transcript instance and absorb $\texttt{suite\_id}$.
 - $\texttt{absorb}(data)$: Feed bytes into the hash state. Must not be called after squeeze.
 - $\texttt{squeeze}(n) \to \S^n$: Produce $n$ output bytes.
 - $\texttt{fork}()$: Clone the transcript state.
 
 **Concrete construction** (`HashTranscript<SHA-512>`):
 
-*Initialization*: $\texttt{new}(label)$ creates a fresh SHA-512 state and feeds
-$\texttt{enc\_32}(\texttt{len}(label)) \;\Vert\; label$ into it.
+*Initialization*: $\texttt{new\_transcript}()$ creates a fresh SHA-512 state and
+feeds $\texttt{suite\_id}$ into it.
 
 *Absorb*: feeds raw bytes directly into the SHA-512 state.
 
@@ -200,7 +215,7 @@ a single pair, and absorbs additional data.
 
 **Steps**:
 
-1. $T \gets \texttt{new}(\text{SUITE\_ID})$
+1. $T \gets \texttt{new\_transcript}()$
 2. For each $(I_i, O_i)$ in $\overline{io}$:
    $T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))$
 3. Delinearize:
@@ -473,7 +488,7 @@ The following configuration specializes [VG24] for the concrete scheme:
   - [`ark-transcript`](https://crates.io/crates/ark-transcript).
   - Begin with empty transcript and "ring-proof" label.
   - Push $R$ to the transcript after instancing.
-  - TODO: Specify the order and how parameters are added to the transcript as we progress the protocol.
+
 
 - Accumulator seed point in Twisted Edwards form:
 $$_{\text{S}_x = 37805570861274048643170021838972902516980894313648523898085159469000338764576}$$
@@ -515,7 +530,8 @@ $$_{\omega = 4930761572854476501216612180227865807071116983904168357507179523674
 2. $\pi_r \gets Ring.prove(P, b)$
 
 The blinding factor $b$ is derived internally by Pedersen prove (section 4.2,
-step 2) and forwarded to the ring prover.
+step 2) and forwarded to the ring prover. $Ring.prove$ and $Ring.verify$ are
+defined in [VG24] [@VG24].
 
 ## 5.2. Verify
 
@@ -543,15 +559,14 @@ step 2) and forwarded to the ring prover.
 
 ## A.1. Deterministic Secret Key Scalar Generation
 
-For convenience and to facilitate deterministic key generation (e.g., from
-mnemonic phrases), we suggest the following method to derive a secret scalar
-from an arbitrary byte string seed. This procedure is not mandated by the
-specification and may be replaced by any secure method that produces uniformly
-distributed scalars in the field $\F$.
+The following method derives a secret scalar from a 32-byte seed. It is
+provided primarily for test vector generation and is not mandated by the
+specification. Any secure method that produces uniformly distributed scalars
+in $\F$ is acceptable.
 
 **Input**:
 
-- $seed \in \S^*$: seed octet-string.
+- $seed \in \S^{32}$: seed octet-string.
 
 **Output**:
 
@@ -560,22 +575,25 @@ distributed scalars in the field $\F$.
 **Steps**:
 
 1. $cnt \gets 0$
-2. $T \gets \texttt{new}(\text{"ark-vrf-keygen"})$
+2. $T \gets \texttt{new\_transcript}()$
 3. $T.\texttt{absorb}(seed)$
 4. If $cnt > 0$: $T.\texttt{absorb}([cnt])$
-5. $secret \gets \texttt{nonce}(0, T)$
-6. If $secret = 0$: increment $cnt$ and go to step 2
-7. Return $secret$
+5. $sk \gets \texttt{dec\_scalar}(seed)$
+6. $secret \gets \texttt{nonce}(sk, T)$
+7. If $secret = 0$: increment $cnt$ and go to step 2
+8. Return $secret$
 
-The $\texttt{nonce}$ procedure (section 1.12) is called with a zero scalar and
-provides domain separation, uniform scalar derivation, and negligible modular
-reduction bias.
+The seed is absorbed into the transcript and also passed as a scalar to the
+$\texttt{nonce}$ procedure (section 1.12), ensuring seed entropy flows through
+both the transcript state and the secret scalar input paths.
 
 ## A.2. Deterministic Blinding Factor Generation
 
-For Pedersen VRF, the blinding factor may be generated deterministically from
-the secret key and the VRF transcript state. This procedure uses the nonce
-function (section 1.12) with a distinct domain separator.
+The following method generates the Pedersen VRF blinding factor deterministically
+from the secret key and the VRF transcript state, using the nonce function
+(section 1.12) with a distinct domain separator. It is provided primarily for
+test vector generation; implementations may use any method that produces a
+uniformly random scalar in $\F$.
 
 **Input**:
 
@@ -591,7 +609,37 @@ function (section 1.12) with a distinct domain separator.
 1. $T.\texttt{absorb}(\texttt{PedersenBlinding})$
 2. $b \gets \texttt{nonce}(sk, T)$
 
-# Appendix B. Test Vectors
+# Appendix B. Behavior with Zero I/O Pairs
+
+When $n = 0$, the $\texttt{vrf\_transcript}$ procedure (section 1.11) sets the
+merged pair to the identity: $(I_m, O_m) = (\mathcal{O}, \mathcal{O})$. This
+causes the VRF-specific verification checks to become trivially satisfied, since
+any scalar multiplication with $\mathcal{O}$ yields $\mathcal{O}$. The
+Schnorr proof-of-knowledge component, however, remains sound: a valid proof
+still requires knowledge of the secret key $x$.
+
+The per-scheme behavior is as follows:
+
+- **IETF VRF**: The verifier computes $U = s \cdot G - c \cdot Y$ (non-trivial)
+  and $V = s \cdot \mathcal{O} - c \cdot \mathcal{O} = \mathcal{O}$ (vacuous).
+  The scheme degenerates to a Schnorr signature on the additional data $ad$,
+  proving knowledge of $x$ for public key $Y$.
+
+- **Thin VRF**: The Schnorr pair $(G, Y)$ is always prepended (section 3.1,
+  step 2), so the internal pair count is at least 1 regardless of the
+  user-supplied $n$. The scheme remains a well-formed Schnorr proof even with
+  zero VRF pairs.
+
+- **Pedersen VRF**: The VRF output check
+  $O_k + c \cdot O_m = s \cdot I_m$ is vacuously satisfied
+  ($\mathcal{O} = \mathcal{O}$), but the commitment check
+  $R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B$ still proves knowledge
+  of the Pedersen commitment opening $(x, b)$.
+
+No VRF output can be derived when $n = 0$, since there are no output points
+to hash.
+
+# Appendix C. Test Vectors
 
 **TODO**: The test vectors below are stale and must be regenerated after the
 nonce procedure change (section 1.10) is applied to the reference implementation.
@@ -599,7 +647,7 @@ nonce procedure change (section 1.10) is applied to the reference implementation
 The test vectors in this section were generated using `ark-vrf` libraries
 revision [`bf2d1cf`](https://github.com/davxy/ark-vrf/tree/bf2d1cf8ec648cf57b0eb1252639798481e05a29).
 
-## B.1. IETF VRF Test Vectors
+## C.1. IETF VRF Test Vectors
 
 Schema:
 
@@ -720,7 +768,7 @@ b0e1f208f9d6e5b310b92014ea7ef3011e649dab038804759f3766e01029d623,
 ce7f4a2354a6c3f97aee6cc60c6aa4c4430b12ed0f0ef304b326c776618d7609,
 ```
 
-## B.2. Pedersen VRF Test Vectors
+## C.2. Pedersen VRF Test Vectors
 
 Schema:
 
@@ -880,7 +928,7 @@ bd8c0c1e5e04577c8836e45fb64131d1275309fe28e1d4334b230e3aa639da1a,
 d93ccbd393ed88c8165b0a01aabe28c56a53b43e527e7927eeadff006dd22114,
 ```
 
-## B.3. Ring VRF Test Vectors
+## C.3. Ring VRF Test Vectors
 
 KZG SRS parameters are derived from Zcash BLS12-381 [powers of tau ceremony](https://zfnd.org/conclusion-of-the-powers-of-tau-ceremony).
 
@@ -1275,9 +1323,9 @@ a359e70e307799b111ad89b162b4260fb4a96ebf4232e8b02d396033498d4216
 
 # References
 
-[RFC-9380]: https://datatracker.ietf.org/doc/rfc9380
-[RFC-9381]: https://datatracker.ietf.org/doc/rfc9381
-[RFC-6234]: https://datatracker.ietf.org/doc/rfc6234
-[BCHSV23]: https://eprint.iacr.org/2023/002
-[MSZ21]: https://eprint.iacr.org/2021/1152
-[VG24]: https://github.com/davxy/ring-proof-spec
+[RFC-9380]: <https://datatracker.ietf.org/doc/rfc9380>
+[RFC-9381]: <https://datatracker.ietf.org/doc/rfc9381>
+[RFC-6234]: <https://datatracker.ietf.org/doc/rfc6234>
+[BCHSV23]: <https://eprint.iacr.org/2023/002>
+[MSZ21]: <https://eprint.iacr.org/2021/1152>
+[VG24]: <https://github.com/davxy/ring-proof-spec>

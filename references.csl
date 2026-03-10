@@ -105,6 +105,7 @@
         <text variable="DOI" prefix=", doi:"/>
       </else-if>
     </choose>
+    <text variable="URL" prefix="; "/>
   </macro>
   <citation collapse="citation-number">
     <sort>

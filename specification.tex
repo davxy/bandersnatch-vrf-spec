@@ -209,10 +209,31 @@ not decode to a point on the prime subgroup \(\bold{G}\).
 \begin{itemize}
 \tightlist
 \item
-  \texttt{suite\_string} = \texttt{"Bandersnatch\_SHA-512\_ELL2"}.
-\item
-  \texttt{h2c\_suite\_id} =
-  \texttt{"Bandersnatch\_XMD:SHA-512\_ELL2\_RO\_"}.
+  \texttt{suite\_id} = \texttt{{[}0x01,\ 0x01,\ 0x01,\ 0x01{]}} --- a
+  4-byte fixed-width identifier encoding the protocol profile:
+\end{itemize}
+
+\begin{longtable}[]{@{}llll@{}}
+\toprule\noalign{}
+Name & Byte & Value & Meaning \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+version & 0 & 0x01 & Protocol profile (v1) \\
+curve & 1 & 0x01 & Bandersnatch \\
+hash & 2 & 0x01 & SHA-512 \\
+h2c & 3 & 0x01 & Elligator 2, random oracle \\
+\end{longtable}
+
+The version byte bundles several tightly-coupled choices: transcript
+construction (HashTranscript), nonce algorithm (RFC-8032), challenge
+derivation (transcript squeeze), point encoding (compressed
+little-endian), and security level (128-bit). Bump this byte when any of
+these changes.
+
+\begin{itemize}
+\tightlist
 \item
   \texttt{challenge\_len} = 16 bytes (128-bit security).
 \item
@@ -261,7 +282,12 @@ point via Elligator 2, and the results are added.
 
 The domain separation tag is:
 
-\[DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_string}\]
+\[DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_id}\]
+
+where \texttt{h2c\_suite\_id} =
+\texttt{"Bandersnatch\_XMD:SHA-512\_ELL2\_RO\_"} is the RFC-9380 suite
+identifier string determined by the curve, hash, and h2c bytes of
+\texttt{suite\_id}.
 
 \subsection{1.7. VRF Output}\label{vrf-output}
 
@@ -297,7 +323,7 @@ output point using a transcript-based point-to-hash procedure.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(T \gets \texttt{new}(\text{SUITE\_ID})\)
+  \(T \gets \texttt{new\_transcript}()\)
 \item
   \(T.\texttt{absorb}(\texttt{PointToHash})\)
 \item
@@ -343,7 +369,8 @@ permitted.
 \begin{itemize}
 \tightlist
 \item
-  \(\texttt{new}(label)\): Initialize with a domain-separation label.
+  \(\texttt{new\_transcript}()\): Create a fresh transcript instance and
+  absorb \(\texttt{suite\_id}\).
 \item
   \(\texttt{absorb}(data)\): Feed bytes into the hash state. Must not be
   called after squeeze.
@@ -357,9 +384,8 @@ permitted.
 \textbf{Concrete construction}
 (\texttt{HashTranscript\textless{}SHA-512\textgreater{}}):
 
-\emph{Initialization}: \(\texttt{new}(label)\) creates a fresh SHA-512
-state and feeds
-\(\texttt{enc\_32}(\texttt{len}(label)) \;\Vert\; label\) into it.
+\emph{Initialization}: \(\texttt{new\_transcript}()\) creates a fresh
+SHA-512 state and feeds \(\texttt{suite\_id}\) into it.
 
 \emph{Absorb}: feeds raw bytes directly into the SHA-512 state.
 
@@ -408,7 +434,7 @@ single pair, and absorbs additional data.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(T \gets \texttt{new}(\text{SUITE\_ID})\)
+  \(T \gets \texttt{new\_transcript}()\)
 \item
   For each \((I_i, O_i)\) in \(\overline{io}\):
   \(T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))\)
@@ -905,9 +931,6 @@ scheme:
     Begin with empty transcript and ``ring-proof'' label.
   \item
     Push \(R\) to the transcript after instancing.
-  \item
-    TODO: Specify the order and how parameters are added to the
-    transcript as we progress the protocol.
   \end{itemize}
 \item
   Accumulator seed point in Twisted Edwards form:
@@ -984,7 +1007,9 @@ scheme:
 \end{enumerate}
 
 The blinding factor \(b\) is derived internally by Pedersen prove
-(section 4.2, step 2) and forwarded to the ring prover.
+(section 4.2, step 2) and forwarded to the ring prover. \(Ring.prove\)
+and \(Ring.verify\) are defined in
+\href{https://github.com/davxy/ring-proof-spec}{VG24} {[}3{]}.
 
 \subsection{5.2. Verify}\label{verify-3}
 
@@ -1036,18 +1061,17 @@ The blinding factor \(b\) is derived internally by Pedersen prove
 \subsection{A.1. Deterministic Secret Key Scalar
 Generation}\label{a.1.-deterministic-secret-key-scalar-generation}
 
-For convenience and to facilitate deterministic key generation (e.g.,
-from mnemonic phrases), we suggest the following method to derive a
-secret scalar from an arbitrary byte string seed. This procedure is not
-mandated by the specification and may be replaced by any secure method
-that produces uniformly distributed scalars in the field \(\bold{F}\).
+The following method derives a secret scalar from a 32-byte seed. It is
+provided primarily for test vector generation and is not mandated by the
+specification. Any secure method that produces uniformly distributed
+scalars in \(\bold{F}\) is acceptable.
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(seed \in \bold{\Sigma}^*\): seed octet-string.
+  \(seed \in \bold{\Sigma}^{32}\): seed octet-string.
 \end{itemize}
 
 \textbf{Output}:
@@ -1066,29 +1090,35 @@ that produces uniformly distributed scalars in the field \(\bold{F}\).
 \item
   \(cnt \gets 0\)
 \item
-  \(T \gets \texttt{new}(\text{"ark-vrf-keygen"})\)
+  \(T \gets \texttt{new\_transcript}()\)
 \item
   \(T.\texttt{absorb}(seed)\)
 \item
   If \(cnt > 0\): \(T.\texttt{absorb}([cnt])\)
 \item
-  \(secret \gets \texttt{nonce}(0, T)\)
+  \(sk \gets \texttt{dec\_scalar}(seed)\)
+\item
+  \(secret \gets \texttt{nonce}(sk, T)\)
 \item
   If \(secret = 0\): increment \(cnt\) and go to step 2
 \item
   Return \(secret\)
 \end{enumerate}
 
-The \(\texttt{nonce}\) procedure (section 1.12) is called with a zero
-scalar and provides domain separation, uniform scalar derivation, and
-negligible modular reduction bias.
+The seed is absorbed into the transcript and also passed as a scalar to
+the \(\texttt{nonce}\) procedure (section 1.12), ensuring seed entropy
+flows through both the transcript state and the secret scalar input
+paths.
 
 \subsection{A.2. Deterministic Blinding Factor
 Generation}\label{a.2.-deterministic-blinding-factor-generation}
 
-For Pedersen VRF, the blinding factor may be generated deterministically
-from the secret key and the VRF transcript state. This procedure uses
-the nonce function (section 1.12) with a distinct domain separator.
+The following method generates the Pedersen VRF blinding factor
+deterministically from the secret key and the VRF transcript state,
+using the nonce function (section 1.12) with a distinct domain
+separator. It is provided primarily for test vector generation;
+implementations may use any method that produces a uniformly random
+scalar in \(\bold{F}\).
 
 \textbf{Input}:
 
@@ -1119,7 +1149,44 @@ the nonce function (section 1.12) with a distinct domain separator.
   \(b \gets \texttt{nonce}(sk, T)\)
 \end{enumerate}
 
-\section{Appendix B. Test Vectors}\label{appendix-b.-test-vectors}
+\section{Appendix B. Behavior with Zero I/O
+Pairs}\label{appendix-b.-behavior-with-zero-io-pairs}
+
+When \(n = 0\), the \(\texttt{vrf\_transcript}\) procedure (section
+1.11) sets the merged pair to the identity:
+\((I_m, O_m) = (\mathcal{O}, \mathcal{O})\). This causes the
+VRF-specific verification checks to become trivially satisfied, since
+any scalar multiplication with \(\mathcal{O}\) yields \(\mathcal{O}\).
+The Schnorr proof-of-knowledge component, however, remains sound: a
+valid proof still requires knowledge of the secret key \(x\).
+
+The per-scheme behavior is as follows:
+
+\begin{itemize}
+\item
+  \textbf{IETF VRF}: The verifier computes \(U = s \cdot G - c \cdot Y\)
+  (non-trivial) and
+  \(V = s \cdot \mathcal{O} - c \cdot \mathcal{O} = \mathcal{O}\)
+  (vacuous). The scheme degenerates to a Schnorr signature on the
+  additional data \(ad\), proving knowledge of \(x\) for public key
+  \(Y\).
+\item
+  \textbf{Thin VRF}: The Schnorr pair \((G, Y)\) is always prepended
+  (section 3.1, step 2), so the internal pair count is at least 1
+  regardless of the user-supplied \(n\). The scheme remains a
+  well-formed Schnorr proof even with zero VRF pairs.
+\item
+  \textbf{Pedersen VRF}: The VRF output check
+  \(O_k + c \cdot O_m = s \cdot I_m\) is vacuously satisfied
+  (\(\mathcal{O} = \mathcal{O}\)), but the commitment check
+  \(R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B\) still proves
+  knowledge of the Pedersen commitment opening \((x, b)\).
+\end{itemize}
+
+No VRF output can be derived when \(n = 0\), since there are no output
+points to hash.
+
+\section{Appendix C. Test Vectors}\label{appendix-c.-test-vectors}
 
 \textbf{TODO}: The test vectors below are stale and must be regenerated
 after the nonce procedure change (section 1.10) is applied to the
@@ -1129,8 +1196,8 @@ The test vectors in this section were generated using \texttt{ark-vrf}
 libraries revision
 \href{https://github.com/davxy/ark-vrf/tree/bf2d1cf8ec648cf57b0eb1252639798481e05a29}{\texttt{bf2d1cf}}.
 
-\subsection{B.1. IETF VRF Test
-Vectors}\label{b.1.-ietf-vrf-test-vectors}
+\subsection{C.1. IETF VRF Test
+Vectors}\label{c.1.-ietf-vrf-test-vectors}
 
 Schema:
 
@@ -1814,29 +1881,26 @@ a359e70e307799b111ad89b162b4260fb4a96ebf4232e8b02d396033498d4216
 \phantomsection\label{refs}
 \begin{CSLReferences}{0}{0}
 \bibitem[\citeproctext]{ref-RFC9381}
-1. Internet Engineering Task Force
-\emph{\href{https://datatracker.ietf.org/doc/rfc9381}{{Verifiable Random
-Functions}}}; {RFC Editor}, 2023;
+1. Internet Engineering Task Force \emph{{Verifiable Random Functions}};
+{RFC Editor}, 2023; \url{https://datatracker.ietf.org/doc/rfc9381}.
 
 \bibitem[\citeproctext]{ref-BCHSV23}
 2. Burdges, J.; Ciobotaru, O.; Alper, H.K.; Stewart, A.; Vasilyev, S.
-\href{https://eprint.iacr.org/2023/002}{Ring Verifiable Random Functions
-and Zero-Knowledge Continuations} 2023.
+Ring Verifiable Random Functions and Zero-Knowledge Continuations 2023;
+\url{https://eprint.iacr.org/2023/002}.
 
 \bibitem[\citeproctext]{ref-VG24}
-3. Vasilyev, S.; Galassi, D.
-\href{https://github.com/davxy/ring-proof-spec}{Ring Proof Technical
-Specification} 2024.
+3. Vasilyev, S.; Galassi, D. Ring Proof Technical Specification 2024;
+\url{https://github.com/davxy/ring-proof-spec}.
 
 \bibitem[\citeproctext]{ref-MSZ21}
-4. Masson, S.; Sanso, A.; Zhang, Z.
-\href{https://eprint.iacr.org/2021/1152}{Bandersnatch: A Fast Elliptic
-Curve Built over the BLS12-381 Scalar Field} 2021.
+4. Masson, S.; Sanso, A.; Zhang, Z. Bandersnatch: A Fast Elliptic Curve
+Built over the BLS12-381 Scalar Field 2021;
+\url{https://eprint.iacr.org/2021/1152}.
 
 \bibitem[\citeproctext]{ref-RFC9380}
-5. Internet Engineering Task Force
-\emph{\href{https://datatracker.ietf.org/doc/rfc9380}{{Hashing to
-Elliptic Curves}}}; {RFC Editor}, 2023;
+5. Internet Engineering Task Force \emph{{Hashing to Elliptic Curves}};
+{RFC Editor}, 2023; \url{https://datatracker.ietf.org/doc/rfc9380}.
 
 \end{CSLReferences}
 
