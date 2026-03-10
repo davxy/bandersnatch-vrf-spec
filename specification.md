@@ -46,7 +46,7 @@ specified in [MSZ21] [@MSZ21].
 - $\texttt{serialize}(P)$: Compressed point encoding (section 2.1).
 - $\texttt{serialize}(s)$: Little-endian scalar encoding (section 2.1).
 
-- `CHALLENGE_LEN` = 16 bytes (128-bit security).
+- `challenge_len` = 16 bytes (128-bit security).
 - `expanded_scalar_len` = $\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil$ = 48 bytes for Bandersnatch.
 
 Domain separation tags used throughout the protocol:
@@ -256,7 +256,7 @@ section 5.5 of [RFC-9381].
 
   - Compressed: $_{\texttt{0x664197ccb667315e6064e4ee81ad8c3586d5dcba508b7d150f3e12da9e666c2a}}$
 
-- `CHALLENGE_LEN` = 16. This value provides 128 bits of security, matching the
+- `challenge_len` = 16. This value provides 128 bits of security, matching the
   effective security level of the Bandersnatch elliptic curve, and it ensures
   that the statistical bias during the modular reduction of the challenge is
   negligible.
@@ -324,7 +324,7 @@ section 5.5 of [RFC-9381].
 6. $s \gets k + c \cdot x$
 7. $\pi \gets (c, s)$
 
-The challenge scalar $c$ is serialized as the first `CHALLENGE_LEN` bytes
+The challenge scalar $c$ is serialized as the first `challenge_len` bytes
 of the little-endian representation.
 
 ## 2.3. Verify
