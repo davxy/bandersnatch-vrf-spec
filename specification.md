@@ -56,13 +56,13 @@ in Twisted Edwards form, with finite field and curve parameters as specified in
 
 ## 1.3. Encoding
 
-- $\texttt{serialize}(P)$: Encodes a point in compressed form. The $y$
+- $\texttt{enc\_point}(P)$: Encodes a point in compressed form. The $y$
   coordinate is serialized in little-endian and the most significant bit of
   the last octet encodes the sign of $x$. This gives `ptLen` = `fLen` = $32$.
-- $\texttt{serialize}(s)$: Encodes a scalar into 32 octets in little-endian
+- $\texttt{enc\_scalar}(s)$: Encodes a scalar into 32 octets in little-endian
   representation.
-- $\texttt{le32}(n)$: Encode integer $n$ as a 4-byte little-endian octet string.
-- $\texttt{from\_le\_bytes\_mod\_order}(buf)$: Interpret octet string $buf$ as a little-endian
+- $\texttt{enc\_32}(n)$: Encode integer $n$ as a 4-byte little-endian octet string.
+- $\texttt{dec\_scalar}(buf)$: Interpret octet string $buf$ as a little-endian
   integer and reduce modulo the prime field order $r$.
 
 Point deserialization MUST output "INVALID" if the octet-string does not
@@ -71,9 +71,9 @@ decode to a point on the prime subgroup $\G$.
 ## 1.4. Constants
 
 - `suite_string` = `"Bandersnatch_SHA-512_ELL2"`.
-- `encode_to_curve_salt` = `""` (empty - no salt).
+- `h2c_suite_id` = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"`.
 - `challenge_len` = 16 bytes (128-bit security).
-- `expanded_scalar_len` = $\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil$ = 48 bytes for Bandersnatch.
+- `expanded_scalar_len` = $\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil$ = 48 bytes.
 
 Domain separation tags used throughout the protocol:
 
@@ -103,14 +103,12 @@ This is the random oracle (`_RO_`) construction: the input is hashed to two
 independent field elements, each is mapped to a curve point via Elligator 2,
 and the results are added.
 
+$$I \gets \texttt{hash\_to\_curve}(DST, i)$$
+
 The domain separation tag is:
 
 $$DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_string}$$
 
-where $\texttt{h2c\_suite\_id}$ = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"` and
-$\texttt{suite\_string}$ = `"Bandersnatch_SHA-512_ELL2"` (section 1.4).
-
-$$I \gets \texttt{hash\_to\_curve}(i)$$
 
 ## 1.7. VRF Output
 
@@ -134,7 +132,7 @@ using a transcript-based point-to-hash procedure.
 
 1. $T \gets \texttt{new}(\text{SUITE\_ID})$
 2. $T.\texttt{absorb}(\texttt{PointToHash})$
-3. $T.\texttt{absorb}(\texttt{serialize}(O))$
+3. $T.\texttt{absorb}(\texttt{enc\_point}(O))$
 4. $o \gets T.\texttt{squeeze}(N)$
 
 ## 1.8. Additional Data
@@ -169,14 +167,14 @@ squeezed from it. After the first squeeze, no further absorbs are permitted.
 **Concrete construction** (`HashTranscript<SHA-512>`):
 
 *Initialization*: $\texttt{new}(label)$ creates a fresh SHA-512 state and feeds
-$\texttt{le32}(\texttt{len}(label)) \;\Vert\; label$ into it.
+$\texttt{enc\_32}(\texttt{len}(label)) \;\Vert\; label$ into it.
 
 *Absorb*: feeds raw bytes directly into the SHA-512 state.
 
 *Squeeze* (counter-mode XOF): on the first squeeze call, finalize the SHA-512
 state to obtain a 64-byte $seed$. Then produce output blocks:
 
-$$block_i = \text{SHA-512}(seed \;\Vert\; \texttt{le32}(i)) \quad \text{for } i = 0, 1, 2, \ldots$$
+$$block_i = \text{SHA-512}(seed \;\Vert\; \texttt{enc\_32}(i)) \quad \text{for } i = 0, 1, 2, \ldots$$
 
 Each block yields 64 bytes. Output is read sequentially across blocks; partial
 block state is preserved between squeeze calls.
@@ -204,17 +202,17 @@ a single pair, and absorbs additional data.
 
 1. $T \gets \texttt{new}(\text{SUITE\_ID})$
 2. For each $(I_i, O_i)$ in $\overline{io}$:
-   $T.\texttt{absorb}(\texttt{serialize}(I_i) \;\Vert\; \texttt{serialize}(O_i))$
+   $T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))$
 3. Delinearize:
      - If $n = 0$: $(I_m, O_m) \gets (\mathcal{O}, \mathcal{O})$
      - If $n = 1$: $(I_m, O_m) \gets (I_0, O_0)$
      - If $n \geq 2$:
        $T' \gets T.\texttt{fork}()$,
-       $T'.\texttt{absorb}(\texttt{Delinearize} \;\Vert\; \texttt{le32}(n))$,
-       squeeze $n$ scalars $z_i \gets \texttt{from\_le\_bytes\_mod\_order}(T'.\texttt{squeeze}(\texttt{challenge\_len}))$,
+       $T'.\texttt{absorb}(\texttt{Delinearize} \;\Vert\; \texttt{enc\_32}(n))$,
+       squeeze $n$ scalars $z_i \gets \texttt{dec\_scalar}(T'.\texttt{squeeze}(\texttt{challenge\_len}))$,
        $I_m \gets \sum_{i} z_i \cdot I_i$,
        $O_m \gets \sum_{i} z_i \cdot O_i$
-4. $T.\texttt{absorb}(\texttt{le32}(\texttt{len}(ad)) \;\Vert\; ad)$
+4. $T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)$
 5. Return $(T, (I_m, O_m))$
 
 ## 1.12. Nonce Procedure
@@ -235,10 +233,10 @@ nonce to the I/O pairs and additional data.
 **Steps**:
 
 1. $T' \gets T.\texttt{fork}()$
-2. $T'.\texttt{absorb}(\texttt{NonceExpand} \;\Vert\; \texttt{serialize}(sk))$
+2. $T'.\texttt{absorb}(\texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(sk))$
 3. $h \gets T'.\texttt{squeeze}(64)$
 4. $T.\texttt{absorb}(\texttt{Nonce} \;\Vert\; h[32..64])$
-5. $k \gets \texttt{from\_le\_bytes\_mod\_order}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))$
+5. $k \gets \texttt{dec\_scalar}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))$
 
 Note: $T$ is consumed (mutated then squeezed). Callers must pass forks where
 the transcript is needed afterwards.
@@ -260,8 +258,8 @@ squeezing.
 **Steps**:
 
 1. $T.\texttt{absorb}(\texttt{Challenge})$
-2. For each $P_i$ in $\bar{P}$: $T.\texttt{absorb}(\texttt{serialize}(P_i))$
-3. $c \gets \texttt{from\_le\_bytes\_mod\_order}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
+2. For each $P_i$ in $\bar{P}$: $T.\texttt{absorb}(\texttt{enc\_point}(P_i))$
+3. $c \gets \texttt{dec\_scalar}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
 
 
 # 2. IETF VRF
@@ -420,8 +418,8 @@ $$_{B_y = 2844273416646779585679724903032903561887158059305678309488447481492335
 1. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)$
 2. $b \gets \texttt{blinding}(x, T.\texttt{fork}())$ (see Appendix A.2)
 3. $\bar{Y} \gets x \cdot G + b \cdot B$
-4. $T_k \gets T.\texttt{fork}()$, $\quad T_k.\texttt{absorb}(\texttt{serialize}(b))$, $\quad k \gets \texttt{nonce}(x, T_k)$
-5. $T_{kb} \gets T.\texttt{fork}()$, $\quad T_{kb}.\texttt{absorb}(\texttt{serialize}(x))$, $\quad k_b \gets \texttt{nonce}(b, T_{kb})$
+4. $T_k \gets T.\texttt{fork}()$, $\quad T_k.\texttt{absorb}(\texttt{enc\_scalar}(b))$, $\quad k \gets \texttt{nonce}(x, T_k)$
+5. $T_{kb} \gets T.\texttt{fork}()$, $\quad T_{kb}.\texttt{absorb}(\texttt{enc\_scalar}(x))$, $\quad k_b \gets \texttt{nonce}(b, T_{kb})$
 6. $R \gets k \cdot G + k_b \cdot B$
 7. $O_k \gets k \cdot I_m$
 8. $c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)$
@@ -609,7 +607,6 @@ Schema:
 sk (x): Secret key,
 pk (Y): Public key,
 in (alpha): Input octet-string,
-salt: encode_to_curve_salt (empty for this suite),
 ad: Additional data octet-string,
 h (I): VRF input point,
 gamma (O): VRF output point,
@@ -731,7 +728,6 @@ Schema:
 sk (x): Secret key,
 pk (Y): Public key,
 in (alpha): Input octet-string,
-salt: encode_to_curve_salt (empty for this suite),
 ad: Additional data octet-string,
 h (I): VRF input point,
 gamma (O): VRF output point,
@@ -898,7 +894,6 @@ Schema:
 sk (x): Secret key,
 pk (Y): Public key,
 in (alpha): Input octet-string,
-salt: encode_to_curve_salt (empty for this suite),
 ad: Additional data octet-string,
 h (I): VRF input point,
 gamma (O): VRF output point,
