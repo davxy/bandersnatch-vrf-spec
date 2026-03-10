@@ -74,8 +74,21 @@ unbiasable verifiable random output.
 
 ## 1.4. VRF Input Point
 
-A point in $\G$ generated from VRF input octet-string using the *Elligator 2*
-*hash-to-curve* algorithm as described by section 6.8.2 of [RFC-9380] [@RFC9380].
+A point in $\G$ generated from VRF input octet-string using the
+$\texttt{hash\_to\_curve}$ method defined in section 3 of [RFC-9380] [@RFC9380],
+instantiated with the *Elligator 2* map to curve (section 6.8.2) and
+$\texttt{expand\_message\_xmd}$ with SHA-512 (section 5.3.1).
+
+This is the random oracle (`_RO_`) construction: the input is hashed to two
+independent field elements, each is mapped to a curve point via Elligator 2,
+and the results are added.
+
+The domain separation tag is:
+
+$$DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_string}$$
+
+where $\texttt{h2c\_suite\_id}$ = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"` and
+$\texttt{suite\_string}$ = `"Bandersnatch_SHA-512_ELL2"` (section 2.1).
 
 $$I \gets \texttt{hash\_to\_curve}(i)$$
 
@@ -297,10 +310,8 @@ section 5.5 of [RFC-9381].
 - The hash function `hash` is SHA-512 as specified in [RFC-6234] [@RFC6234],
   with `hLen` = 64.
 
-* The `ECVRF_encode_to_curve` function uses *Elligator2* method as described in
-  section 6.8.2 of [RFC-9380] and in section 5.4.1.2 of [RFC-9381],
-  parametrized with `h2c_suite_ID_string` = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"`
-  and domain separation tag `DST = "ECVRF_"` $\Vert$ `h2c_suite_ID_string` $\Vert$ `suite_string`.
+* The `ECVRF_encode_to_curve` function uses the *Elligator 2* hash-to-curve
+  construction described in section 1.4, following section 5.4.1.2 of [RFC-9381].
 
 ## 2.2. Prove
 

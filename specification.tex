@@ -160,7 +160,7 @@ curve, constructed over the BLS12-381 scalar field as specified in
   \(\texttt{serialize}(s)\): Little-endian scalar encoding (section
   2.1).
 \item
-  \texttt{CHALLENGE\_LEN} = 16 bytes (128-bit security).
+  \texttt{challenge\_len} = 16 bytes (128-bit security).
 \item
   \texttt{expanded\_scalar\_len} =
   \(\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil\) = 48 bytes for
@@ -200,9 +200,23 @@ unbiasable verifiable random output.
 \subsection{1.4. VRF Input Point}\label{vrf-input-point}
 
 A point in \(\bold{G}\) generated from VRF input octet-string using the
-\emph{Elligator 2} \emph{hash-to-curve} algorithm as described by
-section 6.8.2 of
-\href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380} {[}5{]}.
+\(\texttt{hash\_to\_curve}\) method defined in section 3 of
+\href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380} {[}5{]},
+instantiated with the \emph{Elligator 2} map to curve (section 6.8.2)
+and \(\texttt{expand\_message\_xmd}\) with SHA-512 (section 5.3.1).
+
+This is the random oracle (\texttt{\_RO\_}) construction: the input is
+hashed to two independent field elements, each is mapped to a curve
+point via Elligator 2, and the results are added.
+
+The domain separation tag is:
+
+\[DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_string}\]
+
+where \(\texttt{h2c\_suite\_id}\) =
+\texttt{"Bandersnatch\_XMD:SHA-512\_ELL2\_RO\_"} and
+\(\texttt{suite\_string}\) = \texttt{"Bandersnatch\_SHA-512\_ELL2"}
+(section 2.1).
 
 \[I \gets \texttt{hash\_to\_curve}(i)\]
 
@@ -494,7 +508,7 @@ section 5.5 of
     \(_{\texttt{0x664197ccb667315e6064e4ee81ad8c3586d5dcba508b7d150f3e12da9e666c2a}}\)
   \end{itemize}
 \item
-  \texttt{CHALLENGE\_LEN} = 16. This value provides 128 bits of
+  \texttt{challenge\_len} = 16. This value provides 128 bits of
   security, matching the effective security level of the Bandersnatch
   elliptic curve, and it ensures that the statistical bias during the
   modular reduction of the challenge is negligible.
@@ -545,15 +559,10 @@ section 5.5 of
   \href{https://datatracker.ietf.org/doc/rfc6234}{RFC-6234} {[}6{]},
   with \texttt{hLen} = 64.
 \item
-  The \texttt{ECVRF\_encode\_to\_curve} function uses \emph{Elligator2}
-  method as described in section 6.8.2 of
-  \href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380} and in
-  section 5.4.1.2 of
-  \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381},
-  parametrized with \texttt{h2c\_suite\_ID\_string} =
-  \texttt{"Bandersnatch\_XMD:SHA-512\_ELL2\_RO\_"} and domain separation
-  tag \texttt{DST\ =\ "ECVRF\_"} \(\Vert\)
-  \texttt{h2c\_suite\_ID\_string} \(\Vert\) \texttt{suite\_string}.
+  The \texttt{ECVRF\_encode\_to\_curve} function uses the
+  \emph{Elligator 2} hash-to-curve construction described in section
+  1.4, following section 5.4.1.2 of
+  \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}.
 \end{itemize}
 
 \subsection{2.2. Prove}\label{prove}
@@ -601,7 +610,7 @@ section 5.5 of
 \end{enumerate}
 
 The challenge scalar \(c\) is serialized as the first
-\texttt{CHALLENGE\_LEN} bytes of the little-endian representation.
+\texttt{challenge\_len} bytes of the little-endian representation.
 
 \subsection{2.3. Verify}\label{verify}
 
