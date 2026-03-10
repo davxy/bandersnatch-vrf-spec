@@ -105,6 +105,10 @@ Implementations should provide a method for deterministic secret generation from
 seeds. One RECOMMENDED method is described in Appendix A. However, any secure
 method that outputs uniformly random scalars in $\F$​ is acceptable.
 
+The secret key scalar MUST NOT be zero. A zero secret key maps every VRF input
+to the identity point, making all outputs trivially predictable and proofs
+forgeable.
+
 ## 1.6. VRF Input
 
 The VRF input point $I \in \G$ is derived from the input octet-string using the
@@ -124,6 +128,11 @@ $$DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{sui
 
 where `h2c_suite_id` = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"` is the RFC-9380
 suite identifier string determined by the curve, hash, and h2c bytes of `suite_id`.
+
+Verifiers MUST independently compute each $I_i$ from the corresponding input
+octet-string using the procedure above. Accepting prover-supplied input points
+without recomputation breaks the VRF security guarantees, and in the case of
+Thin VRF (section 3), enables trivial forgery.
 
 ## 1.7. VRF Output
 
@@ -281,7 +290,8 @@ squeezing.
 
 Based on IETF [RFC-9381] which is extended with a transcript-based Fiat-Shamir
 transform, support for additional data ($ad$), and multiple I/O pairs via
-delinearization.
+delinearization. These changes make this scheme incompatible with standard
+RFC-9381 implementations and test vectors.
 
 ## 2.1. Prove
 
@@ -323,7 +333,7 @@ of the little-endian representation.
 
 **Steps**:
 
-1. Validate all points $\in \G$, output $\bot$ if invalid.
+1. Validate $Y$ and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
 2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)$
 3. $U \gets s \cdot G - c \cdot Y$
 4. $V \gets s \cdot I_m - c \cdot O_m$
@@ -386,7 +396,7 @@ into a single check that collapses when all points are multiples of $G$.
 
 **Steps**:
 
-1. Validate all points $\in \G$, output $\bot$ if invalid.
+1. Validate $Y$, $R$, and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
 2. $\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}$
 3. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}', ad)$
 4. $c \gets \texttt{challenge}([R], T)$
@@ -414,6 +424,9 @@ $$_{B_x = 6150229251051246713677296363717454238956877613358614224171740096471278
 $$_{B_y = 28442734166467795856797249030329035618871580593056783094884474814923353898473}$$
 
   - Compressed: $_{\texttt{0xe93da06b869766b158d20b843ec648cc68e0b7ba2f7083acf0f154205d04e23e}}$
+
+  A point with unknown discrete logarithm. Its derivation MUST be documented
+  to ensure no party knows the discrete log of $B$ relative to $G$.
 
 ## 4.1. Prove
 
@@ -460,7 +473,7 @@ proofs with the same (secret, input, ad) but different blinding factors.
 
 **Steps**:
 
-1. Validate all points $\in \G$, output $\bot$ if invalid.
+1. Validate $\bar{Y}$, $R$, $O_k$, and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
 2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)$
 3. $c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)$
 4. $\theta_0 \gets \top \text{ if } O_k + c \cdot O_m = s \cdot I_m \text{ else } \bot$
@@ -529,7 +542,7 @@ $$_{\omega = 4930761572854476501216612180227865807071116983904168357507179523674
 1. $(\pi_p, b) \gets Pedersen.prove(x, \overline{io}, ad)$
 2. $\pi_r \gets Ring.prove(P, b)$
 
-The blinding factor $b$ is derived internally by Pedersen prove (section 4.2,
+The blinding factor $b$ is derived internally by Pedersen prove (section 4.1,
 step 2) and forwarded to the ring prover. $Ring.prove$ and $Ring.verify$ are
 defined in [VG24] [@VG24].
 
