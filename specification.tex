@@ -36,6 +36,16 @@
   \KOMAoptions{parskip=half}}
 \makeatother
 \usepackage{xcolor}
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
 \setlength{\emergencystretch}{3em} % prevent overfull lines
 \providecommand{\tightlist}{%
   \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
@@ -87,7 +97,7 @@
 
 \title{Bandersnatch VRF-AD Specification}
 \author{Davide Galassi \and Seyed Hosseini}
-\date{26 Feb 2026 - Draft 29}
+\date{9 Mar 2026 - Draft 30}
 
 \begin{document}
 \maketitle
@@ -100,25 +110,22 @@
 
 \section{\texorpdfstring{\emph{Abstract}}{Abstract}}\label{abstract}
 
-This specification delineates the framework for a Verifiable Random
-Function with Additional Data (VRF-AD), a cryptographic construct that
-augments a standard VRF by incorporating auxiliary information into its
-signature. We're going to first provide a specification to extend IETF's
-ECVRF as outlined in
-\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]}, then
-we describe a variant of the Pedersen VRF originally introduced by
-\href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]}, which serves
-as a fundamental component for implementing anonymized ring signatures
-as further elaborated by
-\href{https://github.com/davxy/ring-proof-spec}{VG24} {[}3{]}. This
-specification provides detailed insights into the usage of these
-primitives with Bandersnatch, an elliptic curve constructed over the
-BLS12-381 scalar field specified in
+This specification defines three Verifiable Random Function with
+Additional Data (VRF-AD) schemes -- IETF VRF, Thin VRF, and Pedersen VRF
+-- built on a transcript-based Fiat-Shamir transform with support for
+multiple input/output pairs via delinearization. The IETF VRF extends
+\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]}; the
+Thin VRF and Pedersen VRF follow the constructions introduced by
+\href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]}, with the
+Pedersen VRF serving as a building block for anonymized ring signatures
+as described in \href{https://github.com/davxy/ring-proof-spec}{VG24}
+{[}3{]}. All schemes are instantiated over the Bandersnatch elliptic
+curve, constructed over the BLS12-381 scalar field as specified in
 \href{https://eprint.iacr.org/2021/1152}{MSZ21} {[}4{]}.
 
 \section{1. Preliminaries}\label{preliminaries}
 
-\subsection{1.1. Common definitions}\label{common-definitions}
+\subsection{1.1. Common Definitions}\label{common-definitions}
 
 \begin{itemize}
 \item
@@ -127,8 +134,10 @@ BLS12-381 scalar field specified in
   \(\bold{F}\): Scalar field of prime order \(r\)
   (i.e.~\(\mathbb{Z}_r\)).
 \item
-  \(\bold{\Sigma}^k\): Octets strings with length \(k \in \mathbb{N}\)
+  \(\bold{\Sigma}^k\): Octet strings with length \(k \in \mathbb{N}\)
   (\(*\) for arbitrary length).
+\item
+  \(\mathcal{O}\): Identity point of \(\bold{G}\).
 \item
   \(G \in \bold{G}\): Prime order group generator.
 \item
@@ -143,13 +152,44 @@ BLS12-381 scalar field specified in
   \(O \in \bold{G}\): VRF output point.
 \item
   \(o \in \bold{\Sigma}^k\): VRF output hash.
+\item
+  \(T\): Transcript state (section 1.9).
+\item
+  \(\texttt{serialize}(P)\): Compressed point encoding (section 2.1).
+\item
+  \(\texttt{serialize}(s)\): Little-endian scalar encoding (section
+  2.1).
+\item
+  \texttt{CHALLENGE\_LEN} = 16 bytes (128-bit security).
+\item
+  \texttt{expanded\_scalar\_len} =
+  \(\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil\) = 48 bytes for
+  Bandersnatch.
 \end{itemize}
+
+Domain separation tags used throughout the protocol:
+
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Tag & Value & Usage \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+HashToCurveTai & 0x01 & Hash-to-curve (try-and-increment) \\
+Challenge & 0x02 & Challenge derivation \\
+PointToHash & 0x03 & VRF output hashing \\
+Delinearize & 0x04 & Delinearization scalars \\
+NonceExpand & 0x05 & Nonce secret expansion \\
+Nonce & 0x06 & Nonce derivation \\
+PedersenBlinding & 0xCC & Pedersen blinding factor \\
+\end{longtable}
 
 \subsection{1.2. Secret Key Generation}\label{secret-key-generation}
 
 Implementations should provide a method for deterministic secret
-generation from seeds. One RECOMMENDED method is described in Section A.
-However, any secure method that outputs uniformly random scalars in
+generation from seeds. One RECOMMENDED method is described in Appendix
+A. However, any secure method that outputs uniformly random scalars in
 \(\bold{F}\)\hspace{0pt} is acceptable.
 
 \subsection{1.3. VRF Input}\label{vrf-input}
@@ -174,17 +214,43 @@ A point generated from VRF input point and secret key scalar.
 
 \subsection{1.6. VRF Output}\label{vrf-output}
 
-A fixed-length octet string produced from the VRF output point using the
-\emph{output-to-hash} procedure, which is \emph{proof-to-hash} method
-described in Section 5.2 of
-\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}, but with a
-specific focus on the output point component (referred to as \(Gamma\)
-in \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}) extracted
-from the output point proof bundle.
+A fixed-length octet string generated from the VRF output point using a
+transcript-based point-to-hash procedure.
 
-\[o \gets \texttt{output\_to\_hash}(O)\]
+\textbf{Input}:
 
-\subsection{1.7 Additional Data}\label{additional-data}
+\begin{itemize}
+\tightlist
+\item
+  \(O \in \bold{G}\): VRF output point.
+\item
+  \(N \in \mathbb{N}\): Desired output length in bytes.
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(o \in \bold{\Sigma}^N\): VRF output hash.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \(T \gets \texttt{new}(\text{SUITE\_ID})\)
+\item
+  \(T.\texttt{absorb}(0\text{x03})\)
+\item
+  \(T.\texttt{absorb}(\texttt{serialize}(O))\)
+\item
+  \(o \gets T.\texttt{squeeze}(N)\)
+\end{enumerate}
+
+\subsection{1.7. Additional Data}\label{additional-data}
 
 An arbitrary length octet-string provided by the user to be signed
 together with the generated VRF output. This data doesn't influence the
@@ -199,35 +265,125 @@ primary functions:
 \begin{itemize}
 \tightlist
 \item
-  \(prove(x, i, ad) \mapsto \Pi\)
+  \(prove(x, \overline{io}, ad) \mapsto \Pi\)
 \item
-  \(verify(y, i, ad, \Pi) \mapsto (\top \mid \bot)\)
+  \(verify(Y, \overline{io}, ad, \Pi) \mapsto (\top \mid \bot)\)
 \item
-  \(output(\Pi) \mapsto o\)
+  \(output(O) \mapsto o\)
 \end{itemize}
 
-Here:
+Where \(\overline{io}\) is a sequence of \((I_i, O_i)\) input/output
+pairs.
+
+\subsection{1.9. Transcript}\label{transcript}
+
+The transcript provides a Fiat-Shamir transform with an absorb/squeeze
+interface. Data is absorbed into an internal hash state; output bytes
+are squeezed from it. After the first squeeze, no further absorbs are
+permitted.
+
+\textbf{Abstract interface}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(y \gets \texttt{serialize\_compressed}(Y)\), where \(Y\) is the
-  public key corresponding to the private key used for proving.
+  \(\texttt{new}(label)\): Initialize with a domain-separation label.
 \item
-  \(\Pi \gets \texttt{encode\_compressed}((O, \pi))\), where \(\pi\) is
-  the proof specific to the underlying scheme, and \(O\) represents the
-  VRF output point.
+  \(\texttt{absorb}(data)\): Feed bytes into the hash state. Must not be
+  called after squeeze.
+\item
+  \(\texttt{squeeze}(n) \to \bold{\Sigma}^n\): Produce \(n\) output
+  bytes.
+\item
+  \(\texttt{clone}()\): Fork the transcript state.
 \end{itemize}
 
-\subsection{1.9. Nonce Procedure}\label{nonce-procedure}
+\textbf{Concrete construction}
+(\texttt{HashTranscript\textless{}SHA-512\textgreater{}}):
 
-Nonce generation extends the \texttt{ECVRF\_nonce\_generation} procedure
-from section 5.4.2.2 of
-\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]} to
-incorporate additional context, ensuring the nonce varies with all
-inputs to the prove function. This prevents nonce reuse when the same
-secret key and VRF input are signed with different additional data or,
-in the Pedersen VRF case, different blinding factors.
+\emph{Initialization}: \(\texttt{new}(label)\) creates a fresh SHA-512
+state and feeds
+\(\texttt{len}(label) \text{ as u32 LE} \;\Vert\; label\) into it.
+
+\emph{Absorb}: feeds raw bytes directly into the SHA-512 state.
+
+\emph{Squeeze} (counter-mode XOF): on the first squeeze call, finalize
+the SHA-512 state to obtain a 64-byte \(seed\). Then produce output
+blocks:
+
+\[block_i = \text{SHA-512}(seed \;\Vert\; i \text{ as u32 LE}) \quad \text{for } i = 0, 1, 2, \ldots\]
+
+Each block yields 64 bytes. Output is read sequentially across blocks;
+partial block state is preserved between squeeze calls.
+
+\emph{Clone}: duplicates the full internal state (including any partial
+block position if squeezing has begun).
+
+\subsection{1.10. VRF Transcript}\label{vrf-transcript}
+
+Shared transcript construction used by all VRF-AD schemes. Absorbs
+input/output pairs, derives delinearization scalars, merges pairs into a
+single pair, and absorbs additional data.
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): Sequence of
+  input/output pairs.
+\item
+  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(T\): Transcript state (with \(ad\) absorbed).
+\item
+  \((I_m, O_m) \in \bold{G}\times \bold{G}\): Merged input/output pair.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \(T \gets \texttt{new}(\text{SUITE\_ID})\)
+\item
+  For each \((I_i, O_i)\) in \(\overline{io}\):
+  \(T.\texttt{absorb}(\texttt{serialize}(I_i) \;\Vert\; \texttt{serialize}(O_i))\)
+\item
+  Delinearize:
+
+  \begin{itemize}
+  \tightlist
+  \item
+    If \(n = 0\): \((I_m, O_m) \gets (\mathcal{O}, \mathcal{O})\)
+  \item
+    If \(n = 1\): \((I_m, O_m) \gets (I_0, O_0)\)
+  \item
+    If \(n \geq 2\): \(T' \gets T.\texttt{clone}()\),
+    \(T'.\texttt{absorb}(0\text{x04} \;\Vert\; n \text{ as u32 LE})\),
+    squeeze \(n\) scalars
+    \(z_i \gets \texttt{from\_le\_bytes\_mod\_order}(T'.\texttt{squeeze}(\text{CHALLENGE\_LEN}))\),
+    \(I_m \gets \sum_{i} z_i \cdot I_i\),
+    \(O_m \gets \sum_{i} z_i \cdot O_i\)
+  \end{itemize}
+\item
+  \(T.\texttt{absorb}(\texttt{len}(ad) \text{ as u32 LE} \;\Vert\; ad)\)
+\item
+  Return \((T, (I_m, O_m))\)
+\end{enumerate}
+
+\subsection{1.11. Nonce Procedure}\label{nonce-procedure}
+
+Deterministic nonce generation inspired by {[}RFC-8032{]} section 5.1.6.
+The transcript carries shared state from \(\texttt{vrf\_transcript}\),
+binding the nonce to the I/O pairs and additional data.
 
 \textbf{Input}:
 
@@ -236,9 +392,7 @@ in the Pedersen VRF case, different blinding factors.
 \item
   \(sk \in \bold{F}\): Secret scalar.
 \item
-  \(I \in \bold{G}\): VRF input point.
-\item
-  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+  \(T\): Transcript state (consumed).
 \end{itemize}
 
 \textbf{Output}:
@@ -255,31 +409,33 @@ in the Pedersen VRF case, different blinding factors.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(h \gets \texttt{point\_to\_string}(I)\;\Vert\;ad\)
+  \(T' \gets T.\texttt{clone}()\)
 \item
-  \(k \gets \texttt{ECVRF\_nonce\_generation}(\texttt{int\_to\_string}(sk),\;h)\)
+  \(T'.\texttt{absorb}(0\text{x05} \;\Vert\; \texttt{serialize}(sk))\)
+\item
+  \(h \gets T'.\texttt{squeeze}(64)\)
+\item
+  \(T.\texttt{absorb}(0\text{x06} \;\Vert\; h[32..64])\)
+\item
+  \(k \gets \texttt{from\_le\_bytes\_mod\_order}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))\)
 \end{enumerate}
 
-With \texttt{ECVRF\_nonce\_generation} as specified in section 5.4.2.2
-of \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}, and
-\texttt{point\_to\_string}, \texttt{int\_to\_string} as defined in
-section 2.1.
+Note: \(T\) is consumed (mutated then squeezed). Callers must pass
+clones where the transcript is needed afterwards.
 
-\subsection{1.10. Challenge Procedure}\label{challenge-procedure}
+\subsection{1.12. Challenge Procedure}\label{challenge-procedure}
 
-Challenge construction extends the \texttt{ECVRF\_challenge\_generation}
-procedure from section 5.4.3 of
-\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]} to
-include additional data.
+Derives a challenge scalar by absorbing curve points into the transcript
+and squeezing.
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(\bar{P} \in \bold{G}^n\): Sequence of \(n\) points.
+  \(\bar{P} \in \bold{G}^m\): Sequence of \(m\) points.
 \item
-  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+  \(T\): Transcript state (consumed).
 \end{itemize}
 
 \textbf{Output}:
@@ -296,28 +452,25 @@ include additional data.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(str_0 \gets \texttt{suite\_string}\;\Vert\;0x02\)
+  \(T.\texttt{absorb}(0\text{x02})\)
 \item
-  \(str_i \gets str_{i-1}\;\Vert\;\texttt{point\_to\_string}(P_{i-1}),\ i = 1 \dots n\)
+  For each \(P_i\) in \(\bar{P}\):
+  \(T.\texttt{absorb}(\texttt{serialize}(P_i))\)
 \item
-  \(h \gets \texttt{hash}(str_n\;\Vert\;ad\;\Vert\;0x00)\)
-\item
-  \(c \gets \texttt{string\_to\_int}(h_{0 \dots cLen - 1})\)
+  \(c \gets \texttt{from\_le\_bytes\_mod\_order}(T.\texttt{squeeze}(\text{CHALLENGE\_LEN}))\)
 \end{enumerate}
-
-With \texttt{point\_to\_string}, \texttt{string\_to\_int} and
-\texttt{hash} as defined in section 2.1.
 
 \section{2. IETF VRF}\label{ietf-vrf}
 
 Based on IETF \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}
-which is extended with the capability to sign additional user data
-(\(ad\)).
+which is extended with a transcript-based Fiat-Shamir transform, support
+for additional data (\(ad\)), and multiple I/O pairs via
+delinearization.
 
 \subsection{2.1. Configuration}\label{configuration}
 
-Configuration is given by following the \emph{``cipher suite''}
-guidelines defined in section 5.5 of
+Configuration follows the \emph{``cipher suite''} guidelines defined in
+section 5.5 of
 \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}.
 
 \begin{itemize}
@@ -341,10 +494,14 @@ guidelines defined in section 5.5 of
     \(_{\texttt{0x664197ccb667315e6064e4ee81ad8c3586d5dcba508b7d150f3e12da9e666c2a}}\)
   \end{itemize}
 \item
-  \texttt{cLen} = 16. This value provides 128 bits of security, matching
-  the effective security level of the Bandersnatch elliptic curve, and
-  it ensures that the statistical bias during the modular reduction of
-  the challenge is negligible.
+  \texttt{CHALLENGE\_LEN} = 16. This value provides 128 bits of
+  security, matching the effective security level of the Bandersnatch
+  elliptic curve, and it ensures that the statistical bias during the
+  modular reduction of the challenge is negligible.
+\item
+  \texttt{expanded\_scalar\_len} = 48. Computed as
+  \(\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil\), ensuring negligible
+  bias during modular reduction for nonce scalars.
 \item
   The public key generation primitive is \(pk = sk \cdot G\), with
   \(sk\) the secret key scalar and \(G\) the group generator. In this
@@ -353,27 +510,35 @@ guidelines defined in section 5.5 of
 \item
   \texttt{encode\_to\_curve\_salt} = \texttt{""} (empty - no salt)
 \item
-  The \texttt{ECVRF\_nonce\_generation} function is specified in section
-  5.4.2.2 of \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}.
+  The transcript is
+  \texttt{HashTranscript\textless{}SHA-512\textgreater{}} as defined in
+  section 1.9.
 \item
-  The \texttt{int\_to\_string} function encodes into the 32 octets
-  little endian representation.
+  Nonce generation uses the transcript-based procedure in section 1.11.
+\item
+  Challenge generation uses the transcript-based procedure in section
+  1.12.
+\item
+  The \texttt{int\_to\_string} (equivalently \(\texttt{serialize}\) for
+  scalars) function encodes into the 32 octets little endian
+  representation.
 \item
   The \texttt{string\_to\_int} function decodes an octet-string as a
   little-endian integer eventually reducing modulo the prime field
   order.
 \item
-  The \texttt{point\_to\_string} function converts a point in
-  \(\bold{G}\) to an octet-string using compressed form. The \(y\)
-  coordinate is encoded using \texttt{int\_to\_string} function and the
-  most significant bit of the last octet is used to keep track of \(x\)
-  sign. This implies that \texttt{ptLen\ =\ flen\ =\ 32}.
+  The \texttt{point\_to\_string} (equivalently \(\texttt{serialize}\)
+  for points) function converts a point in \(\bold{G}\) to an
+  octet-string using compressed form. The \(y\) coordinate is encoded
+  using \texttt{int\_to\_string} function and the most significant bit
+  of the last octet is used to keep track of \(x\) sign. This implies
+  that \texttt{ptLen\ =\ flen\ =\ 32}.
 \item
   The \texttt{string\_to\_point} function converts an octet-string to a
   point on \(\bold{G}\). The string most significant bit is removed to
   recover the \(x\) coordinate as function of \(y\), which is first
   decoded from the rest of the string using \texttt{int\_to\_string}
-  procedure. This function MUST outputs ``INVALID'' if the octet-string
+  procedure. This function MUST output ``INVALID'' if the octet-string
   does not decode to a point on the prime subgroup \(\bold{G}\).
 \item
   The hash function \texttt{hash} is SHA-512 as specified in
@@ -384,7 +549,7 @@ guidelines defined in section 5.5 of
   method as described in section 6.8.2 of
   \href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380} and in
   section 5.4.1.2 of
-  \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}, with
+  \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381},
   parametrized with \texttt{h2c\_suite\_ID\_string} =
   \texttt{"Bandersnatch\_XMD:SHA-512\_ELL2\_RO\_"} and domain separation
   tag \texttt{DST\ =\ "ECVRF\_"} \(\Vert\)
@@ -398,9 +563,10 @@ guidelines defined in section 5.5 of
 \begin{itemize}
 \tightlist
 \item
-  \(x \in \bold{F}\): Secret key
+  \(x \in \bold{F}\): Secret key.
 \item
-  \(I \in \bold{G}\): VRF input point
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \end{itemize}
@@ -410,9 +576,7 @@ guidelines defined in section 5.5 of
 \begin{itemize}
 \tightlist
 \item
-  \(O \in \bold{G}\): VRF output point
-\item
-  \(\pi \in (\bold{F}, \bold{F})\): Schnorr-like proof
+  \(\pi = (c, s) \in (\bold{F}, \bold{F})\): Schnorr-like proof.
 \end{itemize}
 
 \textbf{Steps}:
@@ -421,28 +585,23 @@ guidelines defined in section 5.5 of
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(O \gets x \cdot I\)
-\item
   \(Y \gets x \cdot G\)
 \item
-  \(k \gets \texttt{nonce}(x, I, ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)\)
 \item
-  \(c \gets \texttt{challenge}(Y, I, O, k \cdot G, k \cdot I, ad)\)
+  \(k \gets \texttt{nonce}(x, T.\texttt{clone}())\)
+\item
+  \(k_b \gets k \cdot G\), \(\quad k_h \gets k \cdot I_m\)
+\item
+  \(c \gets \texttt{challenge}([Y, k_b, k_h], T)\)
 \item
   \(s \gets k + c \cdot x\)
 \item
   \(\pi \gets (c, s)\)
 \end{enumerate}
 
-\textbf{Externals}:
-
-\begin{itemize}
-\tightlist
-\item
-  \(\texttt{nonce}\): refer to section 1.9 of this specification.
-\item
-  \(\texttt{challenge}\): refer to section 1.10 of this specification.
-\end{itemize}
+The challenge scalar \(c\) is serialized as the first
+\texttt{CHALLENGE\_LEN} bytes of the little-endian representation.
 
 \subsection{2.3. Verify}\label{verify}
 
@@ -451,15 +610,14 @@ guidelines defined in section 5.5 of
 \begin{itemize}
 \tightlist
 \item
-  \(Y \in \bold{G}\): Public key
+  \(Y \in \bold{G}\): Public key.
 \item
-  \(I \in \bold{G}\): VRF input point
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \item
-  \(O \in \bold{G}\): VRF output point
-\item
-  \(\pi \in (\bold{F}, \bold{F})\): Schnorr-like proof
+  \(\pi = (c, s) \in (\bold{F}, \bold{F})\): Schnorr-like proof.
 \end{itemize}
 
 \textbf{Output}:
@@ -477,29 +635,133 @@ guidelines defined in section 5.5 of
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \((c, s) \gets \pi\)
+  Validate all points \(\in \bold{G}\), output \(\bot\) if invalid.
 \item
-  If \(Y\) or \(O\) are not valid points in \(\bold{G}\), output
-  \(\bot\).
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)\)
 \item
   \(U \gets s \cdot G - c \cdot Y\)
 \item
-  \(V \gets s \cdot I - c \cdot O\)
+  \(V \gets s \cdot I_m - c \cdot O_m\)
 \item
-  \(c' \gets \texttt{challenge}(Y, I, O, U, V, ad)\)
+  \(c' \gets \texttt{challenge}([Y, U, V], T)\)
 \item
   \(\theta \gets \top \text{ if } c = c' \text{ else } \bot\)
 \end{enumerate}
 
-\textbf{Externals}:
+\section{3. Thin VRF}\label{thin-vrf}
+
+Thin VRF is derived from the PedVRF construction in section 4 of
+\href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]}, reduced to
+EC-VRF form by setting the blinding factor \(b = 0\) and using
+\(pk = sk \cdot G\) directly (see remark on page 13 of the paper).
+
+The scheme merges the Schnorr key pair \((G, Y)\) and VRF I/O pairs into
+a single DLEQ relation via delinearization, then proves it with a
+Schnorr-like proof \((R, s)\). Storing the nonce commitment \(R\)
+(rather than the challenge \(c\)) enables batch verification.
+
+\textbf{Security}: VRF input points MUST be constructed via
+hash-to-curve. If a prover knows \(d\) such that \(I = d \cdot G\), they
+can forge arbitrary outputs for that input, because the delinearization
+merges the Schnorr and VRF pairs into a single check that collapses when
+all points are multiples of \(G\).
+
+\subsection{3.1. Configuration}\label{configuration-1}
+
+Refer to section 2.1 for shared parameters, serialization, and
+hash-to-curve configuration.
+
+\subsection{3.2. Prove}\label{prove-1}
+
+\textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(\texttt{challenge}\): as defined for \(Prove\)
+  \(x \in \bold{F}\): Secret key.
+\item
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
+\item
+  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \end{itemize}
 
-\section{3. Pedersen VRF}\label{pedersen-vrf}
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\pi = (R, s) \in (\bold{G}, \bold{F})\): Thin VRF proof.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \(Y \gets x \cdot G\)
+\item
+  \(\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}\) (prepend
+  Schnorr pair)
+\item
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}', ad)\)
+\item
+  \(k \gets \texttt{nonce}(x, T.\texttt{clone}())\)
+\item
+  \(R \gets k \cdot I_m\)
+\item
+  \(c \gets \texttt{challenge}([R], T)\)
+\item
+  \(s \gets k + c \cdot x\)
+\item
+  \(\pi \gets (R, s)\)
+\end{enumerate}
+
+\subsection{3.3. Verify}\label{verify-1}
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(Y \in \bold{G}\): Public key.
+\item
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
+\item
+  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+\item
+  \(\pi = (R, s) \in (\bold{G}, \bold{F})\): Thin VRF proof.
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\theta \in \{ \top, \bot \}\): \(\top\) if proof is valid, \(\bot\)
+  otherwise.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Validate all points \(\in \bold{G}\), output \(\bot\) if invalid.
+\item
+  \(\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}\)
+\item
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}', ad)\)
+\item
+  \(c \gets \texttt{challenge}([R], T)\)
+\item
+  \(\theta \gets \top \text{ if } s \cdot I_m = R + c \cdot O_m \text{ else } \bot\)
+\end{enumerate}
+
+\section{4. Pedersen VRF}\label{pedersen-vrf}
 
 Pedersen VRF resembles IETF EC-VRF but replaces the public key with a
 Pedersen commitment to the secret key, which makes this VRF useful in
@@ -516,7 +778,7 @@ This specification mostly follows the design proposed by
 with some details about blinding base point value and challenge
 generation procedure.
 
-\subsection{3.1. Configuration}\label{configuration-1}
+\subsection{4.1. Configuration}\label{configuration-2}
 
 Pedersen VRF is configured for prime subgroup \(\bold{G}\) of
 Bandersnatch elliptic curve \(E\), in Twisted Edwards form, defined in
@@ -536,18 +798,17 @@ For all the other configurable parameters and external functions we
 adhere as much as possible to the Bandersnatch cipher suite for IETF VRF
 described in section 2.1 of this specification.
 
-\subsection{3.2. Prove}\label{prove-1}
+\subsection{4.2. Prove}\label{prove-2}
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(x \in \bold{F}\): Secret key
+  \(x \in \bold{F}\): Secret key.
 \item
-  \(b \in \bold{F}\): Secret blinding factor
-\item
-  \(I \in \bold{G}\): VRF input point
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \end{itemize}
@@ -557,10 +818,10 @@ described in section 2.1 of this specification.
 \begin{itemize}
 \tightlist
 \item
-  \(O \in \bold{G}\): VRF output point
+  \(\pi = (\bar{Y}, R, O_k, s, s_b) \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
+  Pedersen proof.
 \item
-  \(\pi \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
-  Pedersen proof
+  \(b \in \bold{F}\): Blinding factor.
 \end{itemize}
 
 \textbf{Steps}:
@@ -569,19 +830,26 @@ described in section 2.1 of this specification.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(O \gets x \cdot I\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)\)
 \item
-  \(k \gets \texttt{nonce}(x, I, \texttt{int\_to\_string}(b)\;\Vert\;ad)\)
-\item
-  \(k_b \gets \texttt{nonce}(b, I, \texttt{int\_to\_string}(x)\;\Vert\;ad)\)
+  \(b \gets \texttt{blinding}(x, T.\texttt{clone}())\) (see Appendix
+  A.2)
 \item
   \(\bar{Y} \gets x \cdot G + b \cdot B\)
 \item
+  \(T_k \gets T.\texttt{clone}()\),
+  \(\quad T_k.\texttt{absorb}(\texttt{serialize}(b))\),
+  \(\quad k \gets \texttt{nonce}(x, T_k)\)
+\item
+  \(T_{kb} \gets T.\texttt{clone}()\),
+  \(\quad T_{kb}.\texttt{absorb}(\texttt{serialize}(x))\),
+  \(\quad k_b \gets \texttt{nonce}(b, T_{kb})\)
+\item
   \(R \gets k \cdot G + k_b \cdot B\)
 \item
-  \(O_k \gets k \cdot I\)
+  \(O_k \gets k \cdot I_m\)
 \item
-  \(c \gets \texttt{challenge}(\bar{Y}, I, O, R, O_k, ad)\)
+  \(c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)\)
 \item
   \(s \gets k + c \cdot x\)
 \item
@@ -590,21 +858,25 @@ described in section 2.1 of this specification.
   \(\pi \gets (\bar{Y}, R, O_k, s, s_b)\)
 \end{enumerate}
 
-\subsection{3.3. Verify}\label{verify-1}
+The nonce cross-binding is critical: \(k\) is bound to \(b\) (step 4)
+and \(k_b\) is bound to \(x\) (step 5). This prevents secret/blinding
+recovery from two proofs with the same (secret, input, ad) but different
+blinding factors.
+
+\subsection{4.3. Verify}\label{verify-2}
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(I \in \bold{G}\): VRF input point
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \item
-  \(O \in \bold{G}\): VRF output point
-\item
-  \(\pi \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
-  Pedersen proof
+  \(\pi = (\bar{Y}, R, O_k, s, s_b) \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
+  Pedersen proof.
 \end{itemize}
 
 \textbf{Output}:
@@ -622,26 +894,28 @@ described in section 2.1 of this specification.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \((\bar{Y}, R, O_k, s, s_b) \gets \pi\)
+  Validate all points \(\in \bold{G}\), output \(\bot\) if invalid.
 \item
-  If \(\bar{Y}, R, O_k\) or \(O\) are not valid points in \(\bold{G}\),
-  output \(\bot\).
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)\)
 \item
-  \(c \gets \texttt{challenge}(\bar{Y}, I, O, R, O_k, ad)\)
+  \(c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)\)
 \item
-  \(\theta_0 \gets \top \text{ if } O_k + c \cdot O = I \cdot s \text{ else } \bot\)
+  \(\theta_0 \gets \top \text{ if } O_k + c \cdot O_m = s \cdot I_m \text{ else } \bot\)
 \item
   \(\theta_1 \gets \top \text{ if } R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B \text{ else } \bot\)
 \item
   \(\theta = \theta_0 \land \theta_1\)
 \end{enumerate}
 
-\section{4. Ring VRF}\label{ring-vrf}
+Note: no public key appears in the verify inputs -- verification uses
+the committed key \(\bar{Y}\) from the proof.
 
-Anonymized ring VRF based of {[}Pedersen VRF{]} and Ring Proof as
+\section{5. Ring VRF}\label{ring-vrf}
+
+Anonymized ring VRF based on Pedersen VRF (section 4) and Ring Proof as
 proposed in \href{https://github.com/davxy/ring-proof-spec}{VG24}.
 
-\subsection{4.1. Configuration}\label{configuration-2}
+\subsection{5.1. Configuration}\label{configuration-3}
 
 Ring proof is configured to work together with Pedersen VRF as presented
 in this specification.
@@ -723,24 +997,21 @@ instance the concrete scheme.
   \(|\mathbb{D}| = 2048\)
 \end{itemize}
 
-\subsection{4.2. Prove}\label{prove-2}
+\subsection{5.2. Prove}\label{prove-3}
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(x \in \bold{F}\): Secret key
+  \(x \in \bold{F}\): Secret key.
 \item
-  \(P \in ?\): Ring prover
-\item
-  \(k \in \mathbb{N}_k\): prover public key position within the ring
-\item
-  \(b \in \bold{F}\): Secret blinding factor
-\item
-  \(I \in \bold{G}\): VRF input point
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+\item
+  \(P\): Ring prover (encapsulates ring keys and prover index).
 \end{itemize}
 
 \textbf{Output}:
@@ -748,13 +1019,11 @@ instance the concrete scheme.
 \begin{itemize}
 \tightlist
 \item
-  \(O \in \bold{G}\): VRF output point
-\item
   \(\pi_p \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
-  Pedersen proof
+  Pedersen proof.
 \item
   \(\pi_r \in ((G_1)^4, (\bold{F})^7, G_1, \bold{F}, G_1, G_1)\): Ring
-  proof
+  proof.
 \end{itemize}
 
 \textbf{Steps}:
@@ -763,31 +1032,33 @@ instance the concrete scheme.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \((O, \pi_p) \gets Pedersen.prove(x, b, k, I, ad)\)
+  \((\pi_p, b) \gets Pedersen.prove(x, \overline{io}, ad)\)
 \item
   \(\pi_r \gets Ring.prove(P, b)\)
 \end{enumerate}
 
-\subsection{4.3. Verify}\label{verify-2}
+The blinding factor \(b\) is derived internally by Pedersen prove
+(section 4.2, step 2) and forwarded to the ring prover.
+
+\subsection{5.3. Verify}\label{verify-3}
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(V \in (G_1)^3\): Ring verifier (pre-processed commitment).
-\item
-  \(I \in \bold{G}\): VRF input point.
-\item
-  \(O \in G\): VRF output point.
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \item
   \(\pi_p \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
-  Pedersen proof
+  Pedersen proof.
 \item
   \(\pi_r \in ((G_1)^4, (\bold{F})^7, G_1, \bold{F}, G_1, G_1)\): Ring
-  proof
+  proof.
+\item
+  \(V \in (G_1)^3\): Ring verifier (pre-processed commitment).
 \end{itemize}
 
 \textbf{Output}:
@@ -805,11 +1076,11 @@ instance the concrete scheme.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(\theta_0 = Pedersen.verify(I, ad, O, \pi_p)\)
+  \(\theta_0 \gets Pedersen.verify(\overline{io}, ad, \pi_p)\)
 \item
   \((\bar{Y}, R, O_k, s, s_b) \gets \pi_p\)
 \item
-  \(\theta_1 = Ring.verify(V, \pi_r, \bar{Y})\)
+  \(\theta_1 \gets Ring.verify(V, \pi_r, \bar{Y})\)
 \item
   \(\theta \gets \theta_0 \land \theta_1\)
 \end{enumerate}
@@ -847,29 +1118,31 @@ that produces uniformly distributed scalars in the field \(\bold{F}\).
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(h \gets \text{sha-512}(seed)\)
+  \(cnt \gets 0\)
 \item
-  Interpret \(h\) as a 512-bit little-endian integer \(v\).
+  \(T \gets \texttt{new}(\text{"ark-vrf-keygen"})\)
 \item
-  Reduce \(v\) modulo the prime order \(r\) of the scalar field to get
-  \(secret\).
+  \(T.\texttt{absorb}(seed)\)
+\item
+  If \(cnt > 0\): \(T.\texttt{absorb}([cnt])\)
+\item
+  \(secret \gets \texttt{nonce}(0, T)\)
+\item
+  If \(secret = 0\): increment \(cnt\) and go to step 2
+\item
+  Return \(secret\)
 \end{enumerate}
 
-The resulting \(secret\) scalar is used as the secret key in subsequent
-operations.
-
-Note: Unlike Ed25519-style key generation, this procedure does not apply
-clamping or any bit-masking to the scalar. The scalar is derived via a
-direct modular reduction, which ensures a uniform distribution over
-\(\bold{F}\).
+The \(\texttt{nonce}\) procedure (section 1.11) is called with a zero
+scalar and provides domain separation, uniform scalar derivation, and
+negligible modular reduction bias.
 
 \subsection{A.2. Deterministic Blinding Factor
 Generation}\label{a.2.-deterministic-blinding-factor-generation}
 
 For Pedersen VRF, the blinding factor may be generated deterministically
-from the secret key, VRF input point, and additional data. This
-procedure is loosely inspired by the challenge generation but uses a
-distinct domain separator.
+from the secret key and the VRF transcript state. This procedure uses
+the nonce function (section 1.11) with a distinct domain separator.
 
 \textbf{Input}:
 
@@ -878,9 +1151,7 @@ distinct domain separator.
 \item
   \(sk \in \bold{F}\): Secret scalar.
 \item
-  \(I \in \bold{G}\): VRF input point.
-\item
-  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+  \(T\): Transcript state (from \(\texttt{vrf\_transcript}\)).
 \end{itemize}
 
 \textbf{Output}:
@@ -897,16 +1168,10 @@ distinct domain separator.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(h \gets \texttt{hash}(\texttt{suite\_string}\;\Vert\;0\text{xCC}\;\Vert\;\texttt{int\_to\_string}(sk)\;\Vert\;\texttt{point\_to\_string}(I)\;\Vert\;ad\;\Vert\;0\text{x00})\)
+  \(T.\texttt{absorb}(0\text{xCC})\)
 \item
-  \(b \gets \texttt{string\_to\_int}(h)\)
+  \(b \gets \texttt{nonce}(sk, T)\)
 \end{enumerate}
-
-With \texttt{hash}, \texttt{int\_to\_string}, \texttt{point\_to\_string}
-and \texttt{string\_to\_int} as defined in section 2.1. Note that
-\texttt{string\_to\_int} here operates on the full hash output
-(\texttt{hLen} = 64 bytes); the modular reduction ensures a near-uniform
-distribution over \(\bold{F}\).
 
 \section{Appendix B. Test Vectors}\label{appendix-b.-test-vectors}
 
@@ -927,6 +1192,7 @@ Schema:
 sk (x): Secret key,
 pk (Y): Public key,
 in (alpha): Input octet-string,
+salt: encode_to_curve_salt (empty for this suite),
 ad: Additional data octet-string,
 h (I): VRF input point,
 gamma (O): VRF output point,
@@ -1049,6 +1315,7 @@ Schema:
 sk (x): Secret key,
 pk (Y): Public key,
 in (alpha): Input octet-string,
+salt: encode_to_curve_salt (empty for this suite),
 ad: Additional data octet-string,
 h (I): VRF input point,
 gamma (O): VRF output point,
@@ -1218,6 +1485,7 @@ Schema:
 sk (x): Secret key,
 pk (Y): Public key,
 in (alpha): Input octet-string,
+salt: encode_to_curve_salt (empty for this suite),
 ad: Additional data octet-string,
 h (I): VRF input point,
 gamma (O): VRF output point,
