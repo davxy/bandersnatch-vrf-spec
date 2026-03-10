@@ -87,7 +87,7 @@
 
 \title{Bandersnatch VRF-AD Specification}
 \author{Davide Galassi \and Seyed Hosseini}
-\date{23 May 2025 - Draft 28}
+\date{26 Feb 2026 - Draft 29}
 
 \begin{document}
 \maketitle
@@ -219,11 +219,58 @@ Here:
   VRF output point.
 \end{itemize}
 
-\subsection{1.9. Challenge Procedure}\label{challenge-procedure}
+\subsection{1.9. Nonce Procedure}\label{nonce-procedure}
 
-Challenge construction mostly follows the procedure given in section
-5.4.3 of \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}
-{[}1{]} with some tweaks to include additional data.
+Nonce generation extends the \texttt{ECVRF\_nonce\_generation} procedure
+from section 5.4.2.2 of
+\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]} to
+incorporate additional context, ensuring the nonce varies with all
+inputs to the prove function. This prevents nonce reuse when the same
+secret key and VRF input are signed with different additional data or,
+in the Pedersen VRF case, different blinding factors.
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(sk \in \bold{F}\): Secret scalar.
+\item
+  \(I \in \bold{G}\): VRF input point.
+\item
+  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(k \in \bold{F}\): Nonce scalar.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \(h \gets \texttt{point\_to\_string}(I)\;\Vert\;ad\)
+\item
+  \(k \gets \texttt{ECVRF\_nonce\_generation}(\texttt{int\_to\_string}(sk),\;h)\)
+\end{enumerate}
+
+With \texttt{ECVRF\_nonce\_generation} as specified in section 5.4.2.2
+of \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}, and
+\texttt{point\_to\_string}, \texttt{int\_to\_string} as defined in
+section 2.1.
+
+\subsection{1.10. Challenge Procedure}\label{challenge-procedure}
+
+Challenge construction extends the \texttt{ECVRF\_challenge\_generation}
+procedure from section 5.4.3 of
+\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]} to
+include additional data.
 
 \textbf{Input}:
 
@@ -294,7 +341,10 @@ guidelines defined in section 5.5 of
     \(_{\texttt{0x664197ccb667315e6064e4ee81ad8c3586d5dcba508b7d150f3e12da9e666c2a}}\)
   \end{itemize}
 \item
-  \texttt{cLen} = 32.
+  \texttt{cLen} = 16. This value provides 128 bits of security, matching
+  the effective security level of the Bandersnatch elliptic curve, and
+  it ensures that the statistical bias during the modular reduction of
+  the challenge is negligible.
 \item
   The public key generation primitive is \(pk = sk \cdot G\), with
   \(sk\) the secret key scalar and \(G\) the group generator. In this
@@ -309,9 +359,9 @@ guidelines defined in section 5.5 of
   The \texttt{int\_to\_string} function encodes into the 32 octets
   little endian representation.
 \item
-  The \texttt{string\_to\_int} function decodes from the 32 octets
-  little endian representation eventually reducing modulo the prime
-  field order.
+  The \texttt{string\_to\_int} function decodes an octet-string as a
+  little-endian integer eventually reducing modulo the prime field
+  order.
 \item
   The \texttt{point\_to\_string} function converts a point in
   \(\bold{G}\) to an octet-string using compressed form. The \(y\)
@@ -375,7 +425,7 @@ guidelines defined in section 5.5 of
 \item
   \(Y \gets x \cdot G\)
 \item
-  \(k \gets \texttt{nonce}(x, I)\)
+  \(k \gets \texttt{nonce}(x, I, ad)\)
 \item
   \(c \gets \texttt{challenge}(Y, I, O, k \cdot G, k \cdot I, ad)\)
 \item
@@ -389,10 +439,9 @@ guidelines defined in section 5.5 of
 \begin{itemize}
 \tightlist
 \item
-  \(\texttt{nonce}\): refer to section 5.4.2.2 of
-  \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}.
+  \(\texttt{nonce}\): refer to section 1.9 of this specification.
 \item
-  \(\texttt{challenge}\): refer to section 1.6 of this specification.
+  \(\texttt{challenge}\): refer to section 1.10 of this specification.
 \end{itemize}
 
 \subsection{2.3. Verify}\label{verify}
@@ -429,6 +478,9 @@ guidelines defined in section 5.5 of
 \tightlist
 \item
   \((c, s) \gets \pi\)
+\item
+  If \(Y\) or \(O\) are not valid points in \(\bold{G}\), output
+  \(\bot\).
 \item
   \(U \gets s \cdot G - c \cdot Y\)
 \item
@@ -484,7 +536,7 @@ For all the other configurable parameters and external functions we
 adhere as much as possible to the Bandersnatch cipher suite for IETF VRF
 described in section 2.1 of this specification.
 
-\subsubsection{3.2. Prove}\label{prove-1}
+\subsection{3.2. Prove}\label{prove-1}
 
 \textbf{Input}:
 
@@ -519,9 +571,9 @@ described in section 2.1 of this specification.
 \item
   \(O \gets x \cdot I\)
 \item
-  \(k \gets \texttt{nonce}(x, I)\)
+  \(k \gets \texttt{nonce}(x, I, \texttt{int\_to\_string}(b)\;\Vert\;ad)\)
 \item
-  \(k_b \gets \texttt{nonce}(b, I)\)
+  \(k_b \gets \texttt{nonce}(b, I, \texttt{int\_to\_string}(x)\;\Vert\;ad)\)
 \item
   \(\bar{Y} \gets x \cdot G + b \cdot B\)
 \item
@@ -571,6 +623,9 @@ described in section 2.1 of this specification.
 \tightlist
 \item
   \((\bar{Y}, R, O_k, s, s_b) \gets \pi\)
+\item
+  If \(\bar{Y}, R, O_k\) or \(O\) are not valid points in \(\bold{G}\),
+  output \(\bot\).
 \item
   \(c \gets \texttt{challenge}(\bar{Y}, I, O, R, O_k, ad)\)
 \item
@@ -768,7 +823,7 @@ For convenience and to facilitate deterministic key generation (e.g.,
 from mnemonic phrases), we suggest the following method to derive a
 secret scalar from an arbitrary byte string seed. This procedure is not
 mandated by the specification and may be replaced by any secure method
-that produces uniformly distributed scalars in the field \(F\).
+that produces uniformly distributed scalars in the field \(\bold{F}\).
 
 \textbf{Input}:
 
@@ -806,12 +861,61 @@ operations.
 Note: Unlike Ed25519-style key generation, this procedure does not apply
 clamping or any bit-masking to the scalar. The scalar is derived via a
 direct modular reduction, which ensures a uniform distribution over
-\(F\).
+\(\bold{F}\).
+
+\subsection{A.2. Deterministic Blinding Factor
+Generation}\label{a.2.-deterministic-blinding-factor-generation}
+
+For Pedersen VRF, the blinding factor may be generated deterministically
+from the secret key, VRF input point, and additional data. This
+procedure is loosely inspired by the challenge generation but uses a
+distinct domain separator.
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(sk \in \bold{F}\): Secret scalar.
+\item
+  \(I \in \bold{G}\): VRF input point.
+\item
+  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(b \in \bold{F}\): Blinding factor scalar.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \(h \gets \texttt{hash}(\texttt{suite\_string}\;\Vert\;0\text{xCC}\;\Vert\;\texttt{int\_to\_string}(sk)\;\Vert\;\texttt{point\_to\_string}(I)\;\Vert\;ad\;\Vert\;0\text{x00})\)
+\item
+  \(b \gets \texttt{string\_to\_int}(h)\)
+\end{enumerate}
+
+With \texttt{hash}, \texttt{int\_to\_string}, \texttt{point\_to\_string}
+and \texttt{string\_to\_int} as defined in section 2.1. Note that
+\texttt{string\_to\_int} here operates on the full hash output
+(\texttt{hLen} = 64 bytes); the modular reduction ensures a near-uniform
+distribution over \(\bold{F}\).
 
 \section{Appendix B. Test Vectors}\label{appendix-b.-test-vectors}
 
-The test vectors in this section were generated using
-\texttt{ark-ec-vrf} libraries revision
+\textbf{TODO}: The test vectors below are stale and must be regenerated
+after the nonce procedure change (section 1.9) is applied to the
+reference implementation.
+
+The test vectors in this section were generated using \texttt{ark-vrf}
+libraries revision
 \href{https://github.com/davxy/ark-vrf/tree/bf2d1cf8ec648cf57b0eb1252639798481e05a29}{\texttt{bf2d1cf}}.
 
 \subsection{B.1. IETF VRF Test
@@ -1499,40 +1603,34 @@ a359e70e307799b111ad89b162b4260fb4a96ebf4232e8b02d396033498d4216
 \phantomsection\label{refs}
 \begin{CSLReferences}{0}{0}
 \bibitem[\citeproctext]{ref-RFC9381}
-\CSLLeftMargin{1. }%
-\CSLRightInline{Internet Engineering Task Force
+1. Internet Engineering Task Force
 \emph{\href{https://datatracker.ietf.org/doc/rfc9381}{{Verifiable Random
-Functions}}}; {RFC Editor}, 2023;}
+Functions}}}; {RFC Editor}, 2023;
 
 \bibitem[\citeproctext]{ref-BCHSV23}
-\CSLLeftMargin{2. }%
-\CSLRightInline{Burdges, J.; Ciobotaru, O.; Alper, H.K.; Stewart, A.;
-Vasilyev, S. \href{https://eprint.iacr.org/2023/002}{Ring Verifiable
-Random Functions and Zero-Knowledge Continuations} 2023.}
+2. Burdges, J.; Ciobotaru, O.; Alper, H.K.; Stewart, A.; Vasilyev, S.
+\href{https://eprint.iacr.org/2023/002}{Ring Verifiable Random Functions
+and Zero-Knowledge Continuations} 2023.
 
 \bibitem[\citeproctext]{ref-VG24}
-\CSLLeftMargin{3. }%
-\CSLRightInline{Vasilyev, S.; Galassi, D.
+3. Vasilyev, S.; Galassi, D.
 \href{https://github.com/davxy/ring-proof-spec}{Ring Proof Technical
-Specification} 2024.}
+Specification} 2024.
 
 \bibitem[\citeproctext]{ref-MSZ21}
-\CSLLeftMargin{4. }%
-\CSLRightInline{Masson, S.; Sanso, A.; Zhang, Z.
+4. Masson, S.; Sanso, A.; Zhang, Z.
 \href{https://eprint.iacr.org/2021/1152}{Bandersnatch: A Fast Elliptic
-Curve Built over the BLS12-381 Scalar Field} 2021.}
+Curve Built over the BLS12-381 Scalar Field} 2021.
 
 \bibitem[\citeproctext]{ref-RFC9380}
-\CSLLeftMargin{5. }%
-\CSLRightInline{Internet Engineering Task Force
+5. Internet Engineering Task Force
 \emph{\href{https://datatracker.ietf.org/doc/rfc9380}{{Hashing to
-Elliptic Curves}}}; {RFC Editor}, 2023;}
+Elliptic Curves}}}; {RFC Editor}, 2023;
 
 \bibitem[\citeproctext]{ref-RFC6234}
-\CSLLeftMargin{6. }%
-\CSLRightInline{Internet Engineering Task Force
+6. Internet Engineering Task Force
 \emph{\href{https://datatracker.ietf.org/doc/rfc6234}{{US Secure Hash
-Algorithms}}}; {RFC Editor}, 2011;}
+Algorithms}}}; {RFC Editor}, 2011;
 
 \end{CSLReferences}
 
