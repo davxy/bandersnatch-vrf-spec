@@ -160,6 +160,13 @@ curve, constructed over the BLS12-381 scalar field as specified in
   \(\texttt{serialize}(s)\): Little-endian scalar encoding (section
   2.1).
 \item
+  \(\texttt{le32}(n)\): Encode integer \(n\) as a 4-byte little-endian
+  octet string.
+\item
+  \(\texttt{from\_le\_bytes\_mod\_order}(buf)\): Interpret octet string
+  \(buf\) as a little-endian integer and reduce modulo the prime field
+  order \(r\).
+\item
   \texttt{challenge\_len} = 16 bytes (128-bit security).
 \item
   \texttt{expanded\_scalar\_len} =
@@ -315,8 +322,8 @@ permitted.
 (\texttt{HashTranscript\textless{}SHA-512\textgreater{}}):
 
 \emph{Initialization}: \(\texttt{new}(label)\) creates a fresh SHA-512
-state and feeds
-\(\texttt{len}(label) \text{ as u32 LE} \;\Vert\; label\) into it.
+state and feeds \(\texttt{le32}(\texttt{len}(label)) \;\Vert\; label\)
+into it.
 
 \emph{Absorb}: feeds raw bytes directly into the SHA-512 state.
 
@@ -324,7 +331,7 @@ state and feeds
 the SHA-512 state to obtain a 64-byte \(seed\). Then produce output
 blocks:
 
-\[block_i = \text{SHA-512}(seed \;\Vert\; i \text{ as u32 LE}) \quad \text{for } i = 0, 1, 2, \ldots\]
+\[block_i = \text{SHA-512}(seed \;\Vert\; \texttt{le32}(i)) \quad \text{for } i = 0, 1, 2, \ldots\]
 
 Each block yields 64 bytes. Output is read sequentially across blocks;
 partial block state is preserved between squeeze calls.
@@ -380,14 +387,14 @@ single pair, and absorbs additional data.
     If \(n = 1\): \((I_m, O_m) \gets (I_0, O_0)\)
   \item
     If \(n \geq 2\): \(T' \gets T.\texttt{fork}()\),
-    \(T'.\texttt{absorb}(\texttt{Delinearize} \;\Vert\; n \text{ as u32 LE})\),
+    \(T'.\texttt{absorb}(\texttt{Delinearize} \;\Vert\; \texttt{le32}(n))\),
     squeeze \(n\) scalars
     \(z_i \gets \texttt{from\_le\_bytes\_mod\_order}(T'.\texttt{squeeze}(\texttt{challenge\_len}))\),
     \(I_m \gets \sum_{i} z_i \cdot I_i\),
     \(O_m \gets \sum_{i} z_i \cdot O_i\)
   \end{itemize}
 \item
-  \(T.\texttt{absorb}(\texttt{len}(ad) \text{ as u32 LE} \;\Vert\; ad)\)
+  \(T.\texttt{absorb}(\texttt{le32}(\texttt{len}(ad)) \;\Vert\; ad)\)
 \item
   Return \((T, (I_m, O_m))\)
 \end{enumerate}

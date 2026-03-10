@@ -45,6 +45,9 @@ specified in [MSZ21] [@MSZ21].
 
 - $\texttt{serialize}(P)$: Compressed point encoding (section 2.1).
 - $\texttt{serialize}(s)$: Little-endian scalar encoding (section 2.1).
+- $\texttt{le32}(n)$: Encode integer $n$ as a 4-byte little-endian octet string.
+- $\texttt{from\_le\_bytes\_mod\_order}(buf)$: Interpret octet string $buf$ as a little-endian
+  integer and reduce modulo the prime field order $r$.
 
 - `challenge_len` = 16 bytes (128-bit security).
 - `expanded_scalar_len` = $\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil$ = 48 bytes for Bandersnatch.
@@ -150,14 +153,14 @@ squeezed from it. After the first squeeze, no further absorbs are permitted.
 **Concrete construction** (`HashTranscript<SHA-512>`):
 
 *Initialization*: $\texttt{new}(label)$ creates a fresh SHA-512 state and feeds
-$\texttt{len}(label) \text{ as u32 LE} \;\Vert\; label$ into it.
+$\texttt{le32}(\texttt{len}(label)) \;\Vert\; label$ into it.
 
 *Absorb*: feeds raw bytes directly into the SHA-512 state.
 
 *Squeeze* (counter-mode XOF): on the first squeeze call, finalize the SHA-512
 state to obtain a 64-byte $seed$. Then produce output blocks:
 
-$$block_i = \text{SHA-512}(seed \;\Vert\; i \text{ as u32 LE}) \quad \text{for } i = 0, 1, 2, \ldots$$
+$$block_i = \text{SHA-512}(seed \;\Vert\; \texttt{le32}(i)) \quad \text{for } i = 0, 1, 2, \ldots$$
 
 Each block yields 64 bytes. Output is read sequentially across blocks; partial
 block state is preserved between squeeze calls.
@@ -191,11 +194,11 @@ a single pair, and absorbs additional data.
      - If $n = 1$: $(I_m, O_m) \gets (I_0, O_0)$
      - If $n \geq 2$:
        $T' \gets T.\texttt{fork}()$,
-       $T'.\texttt{absorb}(\texttt{Delinearize} \;\Vert\; n \text{ as u32 LE})$,
+       $T'.\texttt{absorb}(\texttt{Delinearize} \;\Vert\; \texttt{le32}(n))$,
        squeeze $n$ scalars $z_i \gets \texttt{from\_le\_bytes\_mod\_order}(T'.\texttt{squeeze}(\texttt{challenge\_len}))$,
        $I_m \gets \sum_{i} z_i \cdot I_i$,
        $O_m \gets \sum_{i} z_i \cdot O_i$
-4. $T.\texttt{absorb}(\texttt{len}(ad) \text{ as u32 LE} \;\Vert\; ad)$
+4. $T.\texttt{absorb}(\texttt{le32}(\texttt{len}(ad)) \;\Vert\; ad)$
 5. Return $(T, (I_m, O_m))$
 
 ## 1.11. Nonce Procedure
