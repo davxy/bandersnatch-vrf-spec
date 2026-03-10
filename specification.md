@@ -27,7 +27,7 @@ specified in [MSZ21] [@MSZ21].
 
 # 1. Preliminaries
 
-## 1.1. Common Definitions
+## 1.1. Groups and Fields
 
 - $\G$: Bandersnatch curve cyclic group of prime order $r$.
 - $\F$: Scalar field of prime order $r$ (i.e. $\mathbb{Z}_r$).
@@ -38,14 +38,13 @@ The EC group $\G$ is the prime subgroup of the Bandersnatch elliptic curve,
 in Twisted Edwards form, with finite field and curve parameters as specified in
 [MSZ21] [@MSZ21]. For this group, `fLen` = `qLen` = $32$ and `cofactor` = $4$.
 
-- `suite_string` = `"Bandersnatch_SHA-512_ELL2"`.
-- `encode_to_curve_salt` = `""` (empty - no salt).
-
 - $G \in \G$: Prime order group generator.
   $$_{G_x = 18886178867200960497001835917649091219057080094937609519140440539760939937304}$$
   $$_{G_y = 19188667384257783945677642223292697773471335439753913231509108946878080696678}$$
 
   - Compressed: $_{\texttt{0x664197ccb667315e6064e4ee81ad8c3586d5dcba508b7d150f3e12da9e666c2a}}$
+
+## 1.2. Notation
 
 - $x \in \F$: Secret key scalar.
 - $Y \in \G$: Public key point defined as $x \cdot G$.
@@ -53,7 +52,9 @@ in Twisted Edwards form, with finite field and curve parameters as specified in
 - $I \in \G$: VRF input point.
 - $O \in \G$: VRF output point.
 - $o \in \S^k$: VRF output hash.
-- $T$: Transcript state (section 1.9).
+- $T$: Transcript state (section 1.10).
+
+## 1.3. Encoding
 
 - $\texttt{serialize}(P)$: Encodes a point in compressed form. The $y$
   coordinate is serialized in little-endian and the most significant bit of
@@ -67,6 +68,10 @@ in Twisted Edwards form, with finite field and curve parameters as specified in
 Point deserialization MUST output "INVALID" if the octet-string does not
 decode to a point on the prime subgroup $\G$.
 
+## 1.4. Constants
+
+- `suite_string` = `"Bandersnatch_SHA-512_ELL2"`.
+- `encode_to_curve_salt` = `""` (empty - no salt).
 - `challenge_len` = 16 bytes (128-bit security).
 - `expanded_scalar_len` = $\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil$ = 48 bytes for Bandersnatch.
 
@@ -81,20 +86,15 @@ Domain separation tags used throughout the protocol:
 | Delinearize | 0x05 | Delinearization scalars |
 | PedersenBlinding | 0x80 | Pedersen blinding factor |
 
-## 1.2. Secret Key Generation
+## 1.5. Secret Key Generation
 
 Implementations should provide a method for deterministic secret generation from
 seeds. One RECOMMENDED method is described in Appendix A. However, any secure
 method that outputs uniformly random scalars in $\F$​ is acceptable.
 
-## 1.3. VRF Input
+## 1.6. VRF Input
 
-An arbitrary length octet-string provided by the user to generate some
-unbiasable verifiable random output.
-
-## 1.4. VRF Input Point
-
-A point in $\G$ generated from VRF input octet-string using the
+The VRF input point $I \in \G$ is derived from the input octet-string using the
 $\texttt{hash\_to\_curve}$ method defined in section 3 of [RFC-9380] [@RFC9380],
 instantiated with the *Elligator 2* map to curve (section 6.8.2) and
 $\texttt{expand\_message\_xmd}$ with SHA-512 (section 5.3.1).
@@ -108,20 +108,18 @@ The domain separation tag is:
 $$DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_string}$$
 
 where $\texttt{h2c\_suite\_id}$ = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"` and
-$\texttt{suite\_string}$ = `"Bandersnatch_SHA-512_ELL2"` (section 1.1).
+$\texttt{suite\_string}$ = `"Bandersnatch_SHA-512_ELL2"` (section 1.4).
 
 $$I \gets \texttt{hash\_to\_curve}(i)$$
 
-## 1.5. VRF Output Point
+## 1.7. VRF Output
 
-A point generated from VRF input point and secret key scalar.
+The VRF output point is generated from the VRF input point and secret key scalar:
 
 $$O \gets x \cdot I$$
 
-## 1.6. VRF Output
-
-A fixed-length octet string generated from the VRF output point using a
-transcript-based point-to-hash procedure.
+The VRF output hash is a fixed-length octet string derived from the output point
+using a transcript-based point-to-hash procedure.
 
 **Input**:
 
@@ -139,12 +137,12 @@ transcript-based point-to-hash procedure.
 3. $T.\texttt{absorb}(\texttt{serialize}(O))$
 4. $o \gets T.\texttt{squeeze}(N)$
 
-## 1.7. Additional Data
+## 1.8. Additional Data
 
 An arbitrary length octet-string provided by the user to be signed together with
 the generated VRF output. This data doesn't influence the produced VRF output.
 
-## 1.8. VRF-AD
+## 1.9. VRF-AD
 
 Regardless of the specific scheme, a *Verifiable Random Function with Additional
 Data (VRF-AD)* can be concisely represented by three primary functions:
@@ -155,7 +153,7 @@ Data (VRF-AD)* can be concisely represented by three primary functions:
 
 Where $\overline{io}$ is a sequence of $(I_i, O_i)$ input/output pairs.
 
-## 1.9. Transcript
+## 1.10. Transcript
 
 The transcript provides a Fiat-Shamir transform with an absorb/squeeze
 interface. Data is absorbed into an internal hash state; output bytes are
@@ -186,7 +184,7 @@ block state is preserved between squeeze calls.
 *Fork*: duplicates the full internal state (including any partial block position
 if squeezing has begun).
 
-## 1.10. VRF Transcript
+## 1.11. VRF Transcript
 
 Shared transcript construction used by all VRF-AD schemes. Absorbs
 input/output pairs, derives delinearization scalars, merges pairs into
@@ -219,7 +217,7 @@ a single pair, and absorbs additional data.
 4. $T.\texttt{absorb}(\texttt{le32}(\texttt{len}(ad)) \;\Vert\; ad)$
 5. Return $(T, (I_m, O_m))$
 
-## 1.11. Nonce Procedure
+## 1.12. Nonce Procedure
 
 Deterministic nonce generation inspired by [RFC-8032] section 5.1.6. The
 transcript carries shared state from $\texttt{vrf\_transcript}$, binding the
@@ -245,7 +243,7 @@ nonce to the I/O pairs and additional data.
 Note: $T$ is consumed (mutated then squeezed). Callers must pass forks where
 the transcript is needed afterwards.
 
-## 1.12. Challenge Procedure
+## 1.13. Challenge Procedure
 
 Derives a challenge scalar by absorbing curve points into the transcript and
 squeezing.
@@ -492,7 +490,7 @@ $$_{\square_y = 1905898161000016753437906810570221697178706414669100794711924451
   - Compressed: $_{\texttt{0x92ca79e61dd90c1573a8693f199bf6e1e86835cc715cdcf93f5ef222560023aa}}$
 
   A point with unknown discrete logarithm derived using the `ECVRF_encode_to_curve` function
-  as described in section 1.4 with input the string: `"ring-proof-pad"`.
+  as described in section 1.6 with input the string: `"ring-proof-pad"`.
 
 - Polynomials domain ($\langle \omega \rangle = \mathbb{D}$) generator:
 $$_{\omega = 49307615728544765012166121802278658070711169839041683575071795236746050763237}$$
@@ -571,7 +569,7 @@ distributed scalars in the field $\F$.
 6. If $secret = 0$: increment $cnt$ and go to step 2
 7. Return $secret$
 
-The $\texttt{nonce}$ procedure (section 1.11) is called with a zero scalar and
+The $\texttt{nonce}$ procedure (section 1.12) is called with a zero scalar and
 provides domain separation, uniform scalar derivation, and negligible modular
 reduction bias.
 
@@ -579,7 +577,7 @@ reduction bias.
 
 For Pedersen VRF, the blinding factor may be generated deterministically from
 the secret key and the VRF transcript state. This procedure uses the nonce
-function (section 1.11) with a distinct domain separator.
+function (section 1.12) with a distinct domain separator.
 
 **Input**:
 
@@ -598,7 +596,7 @@ function (section 1.11) with a distinct domain separator.
 # Appendix B. Test Vectors
 
 **TODO**: The test vectors below are stale and must be regenerated after the
-nonce procedure change (section 1.9) is applied to the reference implementation.
+nonce procedure change (section 1.10) is applied to the reference implementation.
 
 The test vectors in this section were generated using `ark-vrf` libraries
 revision [`bf2d1cf`](https://github.com/davxy/ark-vrf/tree/bf2d1cf8ec648cf57b0eb1252639798481e05a29).

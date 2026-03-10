@@ -125,7 +125,7 @@ curve, constructed over the BLS12-381 scalar field as specified in
 
 \section{1. Preliminaries}\label{preliminaries}
 
-\subsection{1.1. Common Definitions}\label{common-definitions}
+\subsection{1.1. Groups and Fields}\label{groups-and-fields}
 
 \begin{itemize}
 \tightlist
@@ -149,10 +149,6 @@ parameters as specified in
 
 \begin{itemize}
 \item
-  \texttt{suite\_string} = \texttt{"Bandersnatch\_SHA-512\_ELL2"}.
-\item
-  \texttt{encode\_to\_curve\_salt} = \texttt{""} (empty - no salt).
-\item
   \(G \in \bold{G}\): Prime order group generator.
   \[_{G_x = 18886178867200960497001835917649091219057080094937609519140440539760939937304}\]
   \[_{G_y = 19188667384257783945677642223292697773471335439753913231509108946878080696678}\]
@@ -163,6 +159,12 @@ parameters as specified in
     Compressed:
     \(_{\texttt{0x664197ccb667315e6064e4ee81ad8c3586d5dcba508b7d150f3e12da9e666c2a}}\)
   \end{itemize}
+\end{itemize}
+
+\subsection{1.2. Notation}\label{notation}
+
+\begin{itemize}
+\tightlist
 \item
   \(x \in \bold{F}\): Secret key scalar.
 \item
@@ -176,7 +178,13 @@ parameters as specified in
 \item
   \(o \in \bold{\Sigma}^k\): VRF output hash.
 \item
-  \(T\): Transcript state (section 1.9).
+  \(T\): Transcript state (section 1.10).
+\end{itemize}
+
+\subsection{1.3. Encoding}\label{encoding}
+
+\begin{itemize}
+\tightlist
 \item
   \(\texttt{serialize}(P)\): Encodes a point in compressed form. The
   \(y\) coordinate is serialized in little-endian and the most
@@ -197,8 +205,14 @@ parameters as specified in
 Point deserialization MUST output ``INVALID'' if the octet-string does
 not decode to a point on the prime subgroup \(\bold{G}\).
 
+\subsection{1.4. Constants}\label{constants}
+
 \begin{itemize}
 \tightlist
+\item
+  \texttt{suite\_string} = \texttt{"Bandersnatch\_SHA-512\_ELL2"}.
+\item
+  \texttt{encode\_to\_curve\_salt} = \texttt{""} (empty - no salt).
 \item
   \texttt{challenge\_len} = 16 bytes (128-bit security).
 \item
@@ -224,25 +238,21 @@ Delinearize & 0x05 & Delinearization scalars \\
 PedersenBlinding & 0x80 & Pedersen blinding factor \\
 \end{longtable}
 
-\subsection{1.2. Secret Key Generation}\label{secret-key-generation}
+\subsection{1.5. Secret Key Generation}\label{secret-key-generation}
 
 Implementations should provide a method for deterministic secret
 generation from seeds. One RECOMMENDED method is described in Appendix
 A. However, any secure method that outputs uniformly random scalars in
 \(\bold{F}\)\hspace{0pt} is acceptable.
 
-\subsection{1.3. VRF Input}\label{vrf-input}
+\subsection{1.6. VRF Input}\label{vrf-input}
 
-An arbitrary length octet-string provided by the user to generate some
-unbiasable verifiable random output.
-
-\subsection{1.4. VRF Input Point}\label{vrf-input-point}
-
-A point in \(\bold{G}\) generated from VRF input octet-string using the
-\(\texttt{hash\_to\_curve}\) method defined in section 3 of
-\href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380} {[}5{]},
-instantiated with the \emph{Elligator 2} map to curve (section 6.8.2)
-and \(\texttt{expand\_message\_xmd}\) with SHA-512 (section 5.3.1).
+The VRF input point \(I \in \bold{G}\) is derived from the input
+octet-string using the \(\texttt{hash\_to\_curve}\) method defined in
+section 3 of \href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380}
+{[}5{]}, instantiated with the \emph{Elligator 2} map to curve (section
+6.8.2) and \(\texttt{expand\_message\_xmd}\) with SHA-512 (section
+5.3.1).
 
 This is the random oracle (\texttt{\_RO\_}) construction: the input is
 hashed to two independent field elements, each is mapped to a curve
@@ -255,20 +265,19 @@ The domain separation tag is:
 where \(\texttt{h2c\_suite\_id}\) =
 \texttt{"Bandersnatch\_XMD:SHA-512\_ELL2\_RO\_"} and
 \(\texttt{suite\_string}\) = \texttt{"Bandersnatch\_SHA-512\_ELL2"}
-(section 1.1).
+(section 1.4).
 
 \[I \gets \texttt{hash\_to\_curve}(i)\]
 
-\subsection{1.5. VRF Output Point}\label{vrf-output-point}
+\subsection{1.7. VRF Output}\label{vrf-output}
 
-A point generated from VRF input point and secret key scalar.
+The VRF output point is generated from the VRF input point and secret
+key scalar:
 
 \[O \gets x \cdot I\]
 
-\subsection{1.6. VRF Output}\label{vrf-output}
-
-A fixed-length octet string generated from the VRF output point using a
-transcript-based point-to-hash procedure.
+The VRF output hash is a fixed-length octet string derived from the
+output point using a transcript-based point-to-hash procedure.
 
 \textbf{Input}:
 
@@ -303,13 +312,13 @@ transcript-based point-to-hash procedure.
   \(o \gets T.\texttt{squeeze}(N)\)
 \end{enumerate}
 
-\subsection{1.7. Additional Data}\label{additional-data}
+\subsection{1.8. Additional Data}\label{additional-data}
 
 An arbitrary length octet-string provided by the user to be signed
 together with the generated VRF output. This data doesn't influence the
 produced VRF output.
 
-\subsection{1.8. VRF-AD}\label{vrf-ad}
+\subsection{1.9. VRF-AD}\label{vrf-ad}
 
 Regardless of the specific scheme, a \emph{Verifiable Random Function
 with Additional Data (VRF-AD)} can be concisely represented by three
@@ -328,7 +337,7 @@ primary functions:
 Where \(\overline{io}\) is a sequence of \((I_i, O_i)\) input/output
 pairs.
 
-\subsection{1.9. Transcript}\label{transcript}
+\subsection{1.10. Transcript}\label{transcript}
 
 The transcript provides a Fiat-Shamir transform with an absorb/squeeze
 interface. Data is absorbed into an internal hash state; output bytes
@@ -372,7 +381,7 @@ partial block state is preserved between squeeze calls.
 \emph{Fork}: duplicates the full internal state (including any partial
 block position if squeezing has begun).
 
-\subsection{1.10. VRF Transcript}\label{vrf-transcript}
+\subsection{1.11. VRF Transcript}\label{vrf-transcript}
 
 Shared transcript construction used by all VRF-AD schemes. Absorbs
 input/output pairs, derives delinearization scalars, merges pairs into a
@@ -432,7 +441,7 @@ single pair, and absorbs additional data.
   Return \((T, (I_m, O_m))\)
 \end{enumerate}
 
-\subsection{1.11. Nonce Procedure}\label{nonce-procedure}
+\subsection{1.12. Nonce Procedure}\label{nonce-procedure}
 
 Deterministic nonce generation inspired by {[}RFC-8032{]} section 5.1.6.
 The transcript carries shared state from \(\texttt{vrf\_transcript}\),
@@ -476,7 +485,7 @@ binding the nonce to the I/O pairs and additional data.
 Note: \(T\) is consumed (mutated then squeezed). Callers must pass forks
 where the transcript is needed afterwards.
 
-\subsection{1.12. Challenge Procedure}\label{challenge-procedure}
+\subsection{1.13. Challenge Procedure}\label{challenge-procedure}
 
 Derives a challenge scalar by absorbing curve points into the transcript
 and squeezing.
@@ -930,7 +939,7 @@ scheme:
   \end{itemize}
 
   A point with unknown discrete logarithm derived using the
-  \texttt{ECVRF\_encode\_to\_curve} function as described in section 1.4
+  \texttt{ECVRF\_encode\_to\_curve} function as described in section 1.6
   with input the string: \texttt{"ring-proof-pad"}.
 \item
   Polynomials domain (\(\langle \omega \rangle = \mathbb{D}\))
@@ -1076,7 +1085,7 @@ that produces uniformly distributed scalars in the field \(\bold{F}\).
   Return \(secret\)
 \end{enumerate}
 
-The \(\texttt{nonce}\) procedure (section 1.11) is called with a zero
+The \(\texttt{nonce}\) procedure (section 1.12) is called with a zero
 scalar and provides domain separation, uniform scalar derivation, and
 negligible modular reduction bias.
 
@@ -1085,7 +1094,7 @@ Generation}\label{a.2.-deterministic-blinding-factor-generation}
 
 For Pedersen VRF, the blinding factor may be generated deterministically
 from the secret key and the VRF transcript state. This procedure uses
-the nonce function (section 1.11) with a distinct domain separator.
+the nonce function (section 1.12) with a distinct domain separator.
 
 \textbf{Input}:
 
@@ -1119,7 +1128,7 @@ the nonce function (section 1.11) with a distinct domain separator.
 \section{Appendix B. Test Vectors}\label{appendix-b.-test-vectors}
 
 \textbf{TODO}: The test vectors below are stale and must be regenerated
-after the nonce procedure change (section 1.9) is applied to the
+after the nonce procedure change (section 1.10) is applied to the
 reference implementation.
 
 The test vectors in this section were generated using \texttt{ark-vrf}
