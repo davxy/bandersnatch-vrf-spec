@@ -622,7 +622,7 @@ in $\F$ is acceptable.
 1. $cnt \gets 0$
 2. $T \gets \texttt{new\_transcript}()$
 3. $T.\texttt{absorb}(seed)$
-4. If $cnt > 0$: $T.\texttt{absorb}([cnt])$
+4. If $cnt > 0$: $T.\texttt{absorb}(cnt)$ where $cnt$ is encoded as a single octet
 5. $sk \gets \texttt{dec\_scalar}(seed)$
 6. $secret \gets \texttt{nonce}(sk, T)$
 7. If $secret = 0$: increment $cnt$ and go to step 2
