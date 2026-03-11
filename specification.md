@@ -694,11 +694,8 @@ to hash.
 
 # Appendix C. Test Vectors
 
-**TODO**: The test vectors below are stale and must be regenerated after the
-nonce procedure change (section 1.10) is applied to the reference implementation.
-
 The test vectors in this section were generated using `ark-vrf` libraries
-revision [`bf2d1cf`](https://github.com/davxy/ark-vrf/tree/bf2d1cf8ec648cf57b0eb1252639798481e05a29).
+revision `c01eee3`.
 
 ## C.1. IETF VRF Test Vectors
 
