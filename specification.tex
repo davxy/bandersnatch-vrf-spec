@@ -329,7 +329,10 @@ evaluation.
 \item
   \(O \in \bold{G}\): VRF output point.
 \item
-  \(N \in \mathbb{N}\): Desired output length in bytes.
+  \(N \in \mathbb{N}\): Desired output length in bytes. MUST be fixed
+  per application context; \(N\) is not absorbed into the transcript, so
+  \(\texttt{squeeze}(N_1)\) is a prefix of \(\texttt{squeeze}(N_2)\) for
+  \(N_1 < N_2\).
 \end{itemize}
 
 \textbf{Output}:
