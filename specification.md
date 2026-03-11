@@ -275,7 +275,7 @@ nonce to the I/O pairs and additional data.
 1. $T' \gets T.\texttt{fork}()$
 2. $T'.\texttt{absorb}(\texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(sk))$
 3. $h \gets T'.\texttt{squeeze}(64)$
-4. $T.\texttt{absorb}(\texttt{Nonce} \;\Vert\; h[32..64])$
+4. $T.\texttt{absorb}(\texttt{Nonce} \;\Vert\; h)$
 5. $k \gets \texttt{dec\_scalar}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))$
 
 Note: $T$ is consumed (mutated then squeezed). Callers must pass forks where
