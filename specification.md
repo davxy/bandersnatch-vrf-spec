@@ -58,7 +58,7 @@ in Twisted Edwards form, with finite field and curve parameters as specified in
 
 - $\texttt{enc\_point}(P)$: Encodes a point in compressed form. The $y$
   coordinate is serialized in little-endian and the most significant bit of
-  the last octet encodes the sign of $x$. This gives `ptLen` = `fLen` = $32$.
+  the last octet encodes the sign of the $x$-coordinate. This gives `ptLen` = `fLen` = $32$.
 - $\texttt{enc\_scalar}(s)$: Encodes a scalar into 32 octets in little-endian
   representation.
 - $\texttt{enc\_32}(n)$: Encode integer $n$ as a 4-byte little-endian octet string.
@@ -147,7 +147,12 @@ The VRF output point is generated from the VRF input point and secret key scalar
 $$O \gets x \cdot I$$
 
 The VRF output hash is a fixed-length octet string derived from the output point
-using a transcript-based point-to-hash procedure.
+using a transcript-based point-to-hash procedure. The procedure is deliberately
+independent of the proof scheme: for a given key and input, the output point
+$O = x \cdot I$ is unique regardless of whether IETF VRF, Thin VRF, or Pedersen
+VRF is used to prove correctness. The scheme determines how the proof is
+constructed, not the VRF output itself. This separation allows applications to
+obtain consistent output hashes across schemes for the same underlying evaluation.
 
 **Input**:
 
@@ -277,6 +282,7 @@ nonce to the I/O pairs and additional data.
 3. $h \gets T'.\texttt{squeeze}(64)$
 4. $T.\texttt{absorb}(\texttt{Nonce} \;\Vert\; h)$
 5. $k \gets \texttt{dec\_scalar}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))$
+6. If $k = 0$: abort (implementation error; probability $\approx 2^{-253}$).
 
 Note: $T$ is consumed (mutated then squeezed). Callers must pass forks where
 the transcript is needed afterwards.
@@ -444,7 +450,7 @@ $$_{B_y = 2844273416646779585679724903032903561887158059305678309488447481492335
 
   - Compressed: $_{\texttt{0xe93da06b869766b158d20b843ec648cc68e0b7ba2f7083acf0f154205d04e23e}}$
 
-  A point with unknown discrete logarithm derived using the `ECVRF_encode_to_curve` function
+  A point with unknown discrete logarithm derived using the `hash_to_curve` function
   as described in section 1.6 with input the string: `"pedersen-blinding"`.
 
 ## 4.1. Prove
@@ -538,7 +544,7 @@ $$_{\text{S}_y = 147383053211410001902366743898417549972022714188769768864944447
 
   - Compressed: $_{\texttt{0x6e5574f9077fb76c885c36196a832dbadd64142d305be5487724967acf9595a0}}$
 
-  A point with unknown discrete logarithm derived using the `ECVRF_encode_to_curve` function
+  A point with unknown discrete logarithm derived using the `hash_to_curve` function
   as described in section 1.6 with input the string: `"ring-accumulator"`.
 
 - Padding point in Twisted Edwards form:
@@ -547,7 +553,7 @@ $$_{\square_y = 1905898161000016753437906810570221697178706414669100794711924451
 
   - Compressed: $_{\texttt{0x92ca79e61dd90c1573a8693f199bf6e1e86835cc715cdcf93f5ef222560023aa}}$
 
-  A point with unknown discrete logarithm derived using the `ECVRF_encode_to_curve` function
+  A point with unknown discrete logarithm derived using the `hash_to_curve` function
   as described in section 1.6 with input the string: `"ring-padding"`.
 
 - Polynomials domain ($\langle \omega \rangle = \mathbb{D}$) generator:

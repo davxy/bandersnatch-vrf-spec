@@ -188,8 +188,8 @@ parameters as specified in
 \item
   \(\texttt{enc\_point}(P)\): Encodes a point in compressed form. The
   \(y\) coordinate is serialized in little-endian and the most
-  significant bit of the last octet encodes the sign of \(x\). This
-  gives \texttt{ptLen} = \texttt{fLen} = \(32\).
+  significant bit of the last octet encodes the sign of the
+  \(x\)-coordinate. This gives \texttt{ptLen} = \texttt{fLen} = \(32\).
 \item
   \(\texttt{enc\_scalar}(s)\): Encodes a scalar into 32 octets in
   little-endian representation.
@@ -313,7 +313,14 @@ key scalar:
 \[O \gets x \cdot I\]
 
 The VRF output hash is a fixed-length octet string derived from the
-output point using a transcript-based point-to-hash procedure.
+output point using a transcript-based point-to-hash procedure. The
+procedure is deliberately independent of the proof scheme: for a given
+key and input, the output point \(O = x \cdot I\) is unique regardless
+of whether IETF VRF, Thin VRF, or Pedersen VRF is used to prove
+correctness. The scheme determines how the proof is constructed, not the
+VRF output itself. This separation allows applications to obtain
+consistent output hashes across schemes for the same underlying
+evaluation.
 
 \textbf{Input}:
 
@@ -525,9 +532,12 @@ binding the nonce to the I/O pairs and additional data.
 \item
   \(h \gets T'.\texttt{squeeze}(64)\)
 \item
-  \(T.\texttt{absorb}(\texttt{Nonce} \;\Vert\; h[32..64])\)
+  \(T.\texttt{absorb}(\texttt{Nonce} \;\Vert\; h)\)
 \item
   \(k \gets \texttt{dec\_scalar}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))\)
+\item
+  If \(k = 0\): abort (implementation error; probability
+  \(\approx 2^{-253}\)).
 \end{enumerate}
 
 Note: \(T\) is consumed (mutated then squeezed). Callers must pass forks
@@ -814,8 +824,8 @@ The \emph{blinding base} \(B \in \bold{G}\) is defined as follows:
 \end{itemize}
 
 A point with unknown discrete logarithm derived using the
-\texttt{ECVRF\_encode\_to\_curve} function as described in section 1.6
-with input the string: \texttt{"pedersen-blinding"}.
+\texttt{hash\_to\_curve} function as described in section 1.6 with input
+the string: \texttt{"pedersen-blinding"}.
 
 \subsection{4.1. Prove}\label{prove-2}
 
@@ -997,8 +1007,8 @@ scheme:
   \end{itemize}
 
   A point with unknown discrete logarithm derived using the
-  \texttt{ECVRF\_encode\_to\_curve} function as described in section 1.6
-  with input the string: \texttt{"ring-accumulator"}.
+  \texttt{hash\_to\_curve} function as described in section 1.6 with
+  input the string: \texttt{"ring-accumulator"}.
 \item
   Padding point in Twisted Edwards form:
   \[_{\square_x = 26287722405578650394504321825321286533153045350760430979437739593351290020913}\]
@@ -1012,8 +1022,8 @@ scheme:
   \end{itemize}
 
   A point with unknown discrete logarithm derived using the
-  \texttt{ECVRF\_encode\_to\_curve} function as described in section 1.6
-  with input the string: \texttt{"ring-padding"}.
+  \texttt{hash\_to\_curve} function as described in section 1.6 with
+  input the string: \texttt{"ring-padding"}.
 \item
   Polynomials domain (\(\langle \omega \rangle = \mathbb{D}\))
   generator:
