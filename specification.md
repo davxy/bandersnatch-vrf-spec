@@ -201,7 +201,13 @@ squeezed from it. After the first squeeze, no further absorbs are permitted.
 *Initialization*: $\texttt{new\_transcript}()$ creates a fresh SHA-512 state and
 feeds $\texttt{suite\_id}$ into it.
 
-*Absorb*: feeds raw bytes directly into the SHA-512 state.
+*Absorb*: feeds raw bytes directly into the SHA-512 state. Consecutive absorb
+calls are equivalent to a single absorb of the concatenated data. This is safe
+because all protocol fields use fixed-width encoding ($\texttt{enc\_point}$: 32
+bytes, $\texttt{enc\_scalar}$: 32 bytes, $\texttt{enc\_32}$: 4 bytes, domain
+tags: 1 byte) or explicit length prefixing ($ad$ via
+$\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad$), so the byte stream is
+unambiguous given the inputs agreed upon by both parties.
 
 *Squeeze* (counter-mode XOF): on the first squeeze call, finalize the SHA-512
 state to obtain a 64-byte $seed$. Then produce output blocks:
@@ -326,7 +332,10 @@ RFC-9381 implementations and test vectors.
 7. $\pi \gets (c, s)$
 
 The challenge scalar $c$ is serialized as the first `challenge_len` bytes
-of the little-endian representation.
+of its little-endian representation, giving a total proof size of
+`challenge_len` + `fLen` = 48 bytes. On deserialization, $c$ is interpreted
+as a little-endian integer with no modular reduction (the value is always
+less than $r$).
 
 ## 2.2. Verify
 
