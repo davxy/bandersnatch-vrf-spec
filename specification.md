@@ -66,7 +66,10 @@ in Twisted Edwards form, with finite field and curve parameters as specified in
   integer and reduce modulo the prime field order $r$.
 
 Point deserialization MUST output "INVALID" if the octet-string does not
-decode to a point on the prime subgroup $\G$.
+decode to a point on the prime subgroup $\G$. All point arithmetic MUST be
+performed in $\G$. Points not in $\G$ MUST be rejected at all entry points;
+accepting a point on the full curve but outside the prime-order subgroup
+enables small-subgroup attacks that break the VRF relation.
 
 ## 1.4. Constants
 
@@ -430,8 +433,8 @@ $$_{B_y = 2844273416646779585679724903032903561887158059305678309488447481492335
 
   - Compressed: $_{\texttt{0xe93da06b869766b158d20b843ec648cc68e0b7ba2f7083acf0f154205d04e23e}}$
 
-  A point with unknown discrete logarithm. Its derivation MUST be documented
-  to ensure no party knows the discrete log of $B$ relative to $G$.
+  A point with unknown discrete logarithm derived using the `ECVRF_encode_to_curve` function
+  as described in section 1.6 with input the string: `"pedersen-blinding"`.
 
 ## 4.1. Prove
 
@@ -514,6 +517,9 @@ $$_{\text{S}_y = 147383053211410001902366743898417549972022714188769768864944447
 
   - Compressed: $_{\texttt{0x6e5574f9077fb76c885c36196a832dbadd64142d305be5487724967acf9595a0}}$
 
+  A point with unknown discrete logarithm derived using the `ECVRF_encode_to_curve` function
+  as described in section 1.6 with input the string: `"ring-accumulator"`.
+
 - Padding point in Twisted Edwards form:
 $$_{\square_x = 26287722405578650394504321825321286533153045350760430979437739593351290020913}$$
 $$_{\square_y = 19058981610000167534379068105702216971787064146691007947119244515951752366738}$$
@@ -521,7 +527,7 @@ $$_{\square_y = 1905898161000016753437906810570221697178706414669100794711924451
   - Compressed: $_{\texttt{0x92ca79e61dd90c1573a8693f199bf6e1e86835cc715cdcf93f5ef222560023aa}}$
 
   A point with unknown discrete logarithm derived using the `ECVRF_encode_to_curve` function
-  as described in section 1.6 with input the string: `"ring-proof-pad"`.
+  as described in section 1.6 with input the string: `"ring-padding"`.
 
 - Polynomials domain ($\langle \omega \rangle = \mathbb{D}$) generator:
 $$_{\omega = 49307615728544765012166121802278658070711169839041683575071795236746050763237}$$
@@ -612,6 +618,14 @@ from the secret key and the VRF transcript state, using the nonce function
 (section 1.12) with a distinct domain separator. It is provided primarily for
 test vector generation; implementations may use any method that produces a
 uniformly random scalar in $\F$.
+
+**Linkability warning**: because $b$ is derived deterministically from $(sk, T)$,
+two Pedersen VRF proofs with the same secret key, I/O pairs, and additional data
+will produce the same blinding factor $b$ and therefore the same blinded public
+key $\bar{Y} = x \cdot G + b \cdot B$. An observer can detect that both proofs
+originate from the same signer by comparing $\bar{Y}$ values. Applications that
+require unlinkability across repeated proofs on the same inputs should generate
+$b$ as a fresh uniformly random scalar rather than using this deterministic method.
 
 **Input**:
 

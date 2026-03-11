@@ -202,7 +202,11 @@ parameters as specified in
 \end{itemize}
 
 Point deserialization MUST output ``INVALID'' if the octet-string does
-not decode to a point on the prime subgroup \(\bold{G}\).
+not decode to a point on the prime subgroup \(\bold{G}\). All point
+arithmetic MUST be performed in \(\bold{G}\). Points not in \(\bold{G}\)
+MUST be rejected at all entry points; accepting a point on the full
+curve but outside the prime-order subgroup enables small-subgroup
+attacks that break the VRF relation.
 
 \subsection{1.4. Constants}\label{constants}
 
@@ -798,9 +802,9 @@ The \emph{blinding base} \(B \in \bold{G}\) is defined as follows:
   \(_{\texttt{0xe93da06b869766b158d20b843ec648cc68e0b7ba2f7083acf0f154205d04e23e}}\)
 \end{itemize}
 
-A point with unknown discrete logarithm. Its derivation MUST be
-documented to ensure no party knows the discrete log of \(B\) relative
-to \(G\).
+A point with unknown discrete logarithm derived using the
+\texttt{ECVRF\_encode\_to\_curve} function as described in section 1.6
+with input the string: \texttt{"pedersen-blinding"}.
 
 \subsection{4.1. Prove}\label{prove-2}
 
@@ -970,6 +974,10 @@ scheme:
     Compressed:
     \(_{\texttt{0x6e5574f9077fb76c885c36196a832dbadd64142d305be5487724967acf9595a0}}\)
   \end{itemize}
+
+  A point with unknown discrete logarithm derived using the
+  \texttt{ECVRF\_encode\_to\_curve} function as described in section 1.6
+  with input the string: \texttt{"ring-accumulator"}.
 \item
   Padding point in Twisted Edwards form:
   \[_{\square_x = 26287722405578650394504321825321286533153045350760430979437739593351290020913}\]
@@ -984,7 +992,7 @@ scheme:
 
   A point with unknown discrete logarithm derived using the
   \texttt{ECVRF\_encode\_to\_curve} function as described in section 1.6
-  with input the string: \texttt{"ring-proof-pad"}.
+  with input the string: \texttt{"ring-padding"}.
 \item
   Polynomials domain (\(\langle \omega \rangle = \mathbb{D}\))
   generator:
@@ -1146,6 +1154,16 @@ using the nonce function (section 1.12) with a distinct domain
 separator. It is provided primarily for test vector generation;
 implementations may use any method that produces a uniformly random
 scalar in \(\bold{F}\).
+
+\textbf{Linkability warning}: because \(b\) is derived deterministically
+from \((sk, T)\), two Pedersen VRF proofs with the same secret key, I/O
+pairs, and additional data will produce the same blinding factor \(b\)
+and therefore the same blinded public key
+\(\bar{Y} = x \cdot G + b \cdot B\). An observer can detect that both
+proofs originate from the same signer by comparing \(\bar{Y}\) values.
+Applications that require unlinkability across repeated proofs on the
+same inputs should generate \(b\) as a fresh uniformly random scalar
+rather than using this deterministic method.
 
 \textbf{Input}:
 
