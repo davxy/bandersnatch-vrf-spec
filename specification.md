@@ -78,7 +78,7 @@ enables small-subgroup attacks that break the VRF relation.
 
 | Name | Byte | Value | Meaning |
 |---|---|---|---|
-| version | 0 | 0x01 | Protocol profile (v1) |
+| version | 0 | 0x01 | Suite version (v1) |
 | curve | 1 | 0x01 | Bandersnatch |
 | hash | 2 | 0x01 | SHA-512 |
 | h2c | 3 | 0x01 | Elligator 2, random oracle |
