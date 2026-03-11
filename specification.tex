@@ -256,6 +256,9 @@ Nonce & 0x03 & Nonce derivation \\
 PointToHash & 0x04 & VRF output hashing \\
 Delinearize & 0x05 & Delinearization scalars \\
 PedersenBlinding & 0x80 & Pedersen blinding factor \\
+IetfVrf & 0x10 & IETF VRF scheme identifier \\
+ThinVrf & 0x11 & Thin VRF scheme identifier \\
+PedersenVrf & 0x12 & Pedersen VRF scheme identifier \\
 \end{longtable}
 
 \subsection{1.5. Secret Key Generation}\label{secret-key-generation}
@@ -421,6 +424,8 @@ single pair, and absorbs additional data.
 \begin{itemize}
 \tightlist
 \item
+  \(scheme\): Scheme identifier tag.
+\item
   \(\overline{io} \in (\bold{G}\times \bold{G})^n\): Sequence of
   input/output pairs.
 \item
@@ -444,6 +449,8 @@ single pair, and absorbs additional data.
 \tightlist
 \item
   \(T \gets \texttt{new\_transcript}()\)
+\item
+  \(T.\texttt{absorb}(scheme)\)
 \item
   For each \((I_i, O_i)\) in \(\overline{io}\):
   \(T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))\)
@@ -590,7 +597,7 @@ standard RFC-9381 implementations and test vectors.
 \item
   \(Y \gets x \cdot G\)
 \item
-  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, \overline{io}, ad)\)
 \item
   \(k \gets \texttt{nonce}(x, T.\texttt{fork}())\)
 \item
@@ -642,7 +649,7 @@ The challenge scalar \(c\) is serialized as the first
   \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if any is
   invalid or the identity.
 \item
-  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, \overline{io}, ad)\)
 \item
   \(U \gets s \cdot G - c \cdot Y\)
 \item
@@ -705,7 +712,7 @@ all points are multiples of \(G\).
   \(\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}\) (prepend
   Schnorr pair)
 \item
-  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}', ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}', ad)\)
 \item
   \(k \gets \texttt{nonce}(x, T.\texttt{fork}())\)
 \item
@@ -756,7 +763,7 @@ all points are multiples of \(G\).
 \item
   \(\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}\)
 \item
-  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}', ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}', ad)\)
 \item
   \(c \gets \texttt{challenge}([R], T)\)
 \item
@@ -827,7 +834,7 @@ to \(G\).
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)\)
 \item
   \(b \gets \texttt{blinding}(x, T.\texttt{fork}())\) (see Appendix A.2)
 \item
@@ -894,7 +901,7 @@ blinding factors.
   \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if any is
   invalid or the identity.
 \item
-  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)\)
 \item
   \(c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)\)
 \item

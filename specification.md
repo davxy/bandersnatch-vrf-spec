@@ -98,6 +98,9 @@ Domain separation tags used throughout the protocol:
 | PointToHash | 0x04 | VRF output hashing |
 | Delinearize | 0x05 | Delinearization scalars |
 | PedersenBlinding | 0x80 | Pedersen blinding factor |
+| IetfVrf | 0x10 | IETF VRF scheme identifier |
+| ThinVrf | 0x11 | Thin VRF scheme identifier |
+| PedersenVrf | 0x12 | Pedersen VRF scheme identifier |
 
 ## 1.5. Secret Key Generation
 
@@ -214,6 +217,7 @@ a single pair, and absorbs additional data.
 
 **Input**:
 
+- $scheme$: Scheme identifier tag.
 - $\overline{io} \in (\G \times \G)^n$: Sequence of input/output pairs.
 - $ad \in \S^*$: Additional data octet-string.
 
@@ -225,9 +229,10 @@ a single pair, and absorbs additional data.
 **Steps**:
 
 1. $T \gets \texttt{new\_transcript}()$
-2. For each $(I_i, O_i)$ in $\overline{io}$:
+2. $T.\texttt{absorb}(scheme)$
+3. For each $(I_i, O_i)$ in $\overline{io}$:
    $T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))$
-3. Delinearize:
+4. Delinearize:
      - If $n = 0$: $(I_m, O_m) \gets (\mathcal{O}, \mathcal{O})$
      - If $n = 1$: $(I_m, O_m) \gets (I_0, O_0)$
      - If $n \geq 2$:
@@ -236,8 +241,8 @@ a single pair, and absorbs additional data.
        squeeze $n$ scalars $z_i \gets \texttt{dec\_scalar}(T'.\texttt{squeeze}(\texttt{challenge\_len}))$,
        $I_m \gets \sum_{i} z_i \cdot I_i$,
        $O_m \gets \sum_{i} z_i \cdot O_i$
-4. $T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)$
-5. Return $(T, (I_m, O_m))$
+5. $T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)$
+6. Return $(T, (I_m, O_m))$
 
 ## 1.12. Nonce Procedure
 
@@ -308,7 +313,7 @@ RFC-9381 implementations and test vectors.
 **Steps**:
 
 1. $Y \gets x \cdot G$
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, \overline{io}, ad)$
 3. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
 4. $k_b \gets k \cdot G$, $\quad k_h \gets k \cdot I_m$
 5. $c \gets \texttt{challenge}([Y, k_b, k_h], T)$
@@ -334,7 +339,7 @@ of the little-endian representation.
 **Steps**:
 
 1. Validate $Y$ and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, \overline{io}, ad)$
 3. $U \gets s \cdot G - c \cdot Y$
 4. $V \gets s \cdot I_m - c \cdot O_m$
 5. $c' \gets \texttt{challenge}([Y, U, V], T)$
@@ -374,7 +379,7 @@ into a single check that collapses when all points are multiples of $G$.
 
 1. $Y \gets x \cdot G$
 2. $\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}$ (prepend Schnorr pair)
-3. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}', ad)$
+3. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}', ad)$
 4. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
 5. $R \gets k \cdot I_m$
 6. $c \gets \texttt{challenge}([R], T)$
@@ -398,7 +403,7 @@ into a single check that collapses when all points are multiples of $G$.
 
 1. Validate $Y$, $R$, and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
 2. $\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}$
-3. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}', ad)$
+3. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}', ad)$
 4. $c \gets \texttt{challenge}([R], T)$
 5. $\theta \gets \top \text{ if } s \cdot I_m = R + c \cdot O_m \text{ else } \bot$
 
@@ -443,7 +448,7 @@ $$_{B_y = 2844273416646779585679724903032903561887158059305678309488447481492335
 
 **Steps**:
 
-1. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)$
+1. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)$
 2. $b \gets \texttt{blinding}(x, T.\texttt{fork}())$ (see Appendix A.2)
 3. $\bar{Y} \gets x \cdot G + b \cdot B$
 4. $T_k \gets T.\texttt{fork}()$, $\quad T_k.\texttt{absorb}(\texttt{enc\_scalar}(b))$, $\quad k \gets \texttt{nonce}(x, T_k)$
@@ -474,7 +479,7 @@ proofs with the same (secret, input, ad) but different blinding factors.
 **Steps**:
 
 1. Validate $\bar{Y}$, $R$, $O_k$, and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\overline{io}, ad)$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)$
 3. $c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)$
 4. $\theta_0 \gets \top \text{ if } O_k + c \cdot O_m = s \cdot I_m \text{ else } \bot$
 5. $\theta_1 \gets \top \text{ if } R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B \text{ else } \bot$
