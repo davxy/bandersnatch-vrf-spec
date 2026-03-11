@@ -157,7 +157,9 @@ obtain consistent output hashes across schemes for the same underlying evaluatio
 **Input**:
 
 - $O \in \G$: VRF output point.
-- $N \in \mathbb{N}$: Desired output length in bytes.
+- $N \in \mathbb{N}$: Desired output length in bytes. MUST be fixed per
+  application context; $N$ is not absorbed into the transcript, so
+  $\texttt{squeeze}(N_1)$ is a prefix of $\texttt{squeeze}(N_2)$ for $N_1 < N_2$.
 
 **Output**:
 
