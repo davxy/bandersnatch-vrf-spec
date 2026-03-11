@@ -169,6 +169,8 @@ using a transcript-based point-to-hash procedure.
 
 An arbitrary length octet-string provided by the user to be signed together with
 the generated VRF output. This data doesn't influence the produced VRF output.
+The length of $ad$ MUST NOT exceed $2^{32} - 1$ bytes, as the length is encoded
+via $\texttt{enc\_32}$ in the transcript (section 1.11).
 
 ## 1.9. VRF-AD
 
@@ -240,7 +242,7 @@ a single pair, and absorbs additional data.
      - If $n = 1$: $(I_m, O_m) \gets (I_0, O_0)$
      - If $n \geq 2$:
        $T' \gets T.\texttt{fork}()$,
-       $T'.\texttt{absorb}(\texttt{Delinearize} \;\Vert\; \texttt{enc\_32}(n))$,
+       $T'.\texttt{absorb}(\texttt{Delinearize})$,
        squeeze $n$ scalars $z_i \gets \texttt{dec\_scalar}(T'.\texttt{squeeze}(\texttt{challenge\_len}))$,
        $I_m \gets \sum_{i} z_i \cdot I_i$,
        $O_m \gets \sum_{i} z_i \cdot O_i$
