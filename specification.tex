@@ -379,8 +379,8 @@ pairs.
 
 The transcript provides a Fiat-Shamir transform with an absorb/squeeze
 interface. Data is absorbed into an internal hash state; output bytes
-are squeezed from it. After the first squeeze, no further absorbs are
-permitted.
+are squeezed from it. After the first squeeze, \(\texttt{absorb}\) MUST
+NOT be called.
 
 \textbf{Abstract interface}:
 
@@ -390,7 +390,7 @@ permitted.
   \(\texttt{new\_transcript}()\): Create a fresh transcript instance and
   absorb \(\texttt{suite\_id}\).
 \item
-  \(\texttt{absorb}(data)\): Feed bytes into the hash state. Must not be
+  \(\texttt{absorb}(data)\): Feed bytes into the hash state. MUST NOT be
   called after squeeze.
 \item
   \(\texttt{squeeze}(n) \to \bold{\Sigma}^n\): Produce \(n\) output
@@ -598,8 +598,7 @@ standard RFC-9381 implementations and test vectors.
 \begin{itemize}
 \tightlist
 \item
-  \(\pi = (c, s) \in (\bold{\Sigma}^{\texttt{challenge\_len}}, \bold{F})\):
-  Schnorr-like proof.
+  \(\pi = (c, s) \in (\bold{F}, \bold{F})\): Schnorr-like proof.
 \end{itemize}
 
 \textbf{Steps}:
@@ -643,8 +642,7 @@ integer with no modular reduction (the value is always less than \(r\)).
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \item
-  \(\pi = (c, s) \in (\bold{\Sigma}^{\texttt{challenge\_len}}, \bold{F})\):
-  Schnorr-like proof.
+  \(\pi = (c, s) \in (\bold{F}, \bold{F})\): Schnorr-like proof.
 \end{itemize}
 
 \textbf{Output}:
@@ -931,6 +929,16 @@ blinding factors.
 
 Note: no public key appears in the verify inputs -- verification uses
 the committed key \(\bar{Y}\) from the proof.
+
+\subsection{4.3. Unblinding}\label{unblinding}
+
+To link a Pedersen VRF proof to a specific public key, the prover
+reveals the blinding factor \(b\) and the verifier checks:
+
+\[\bar{Y} = Y + b \cdot B\]
+
+where \(Y \in \bold{G}\setminus \{\mathcal{O}\}\) is the claimed public
+key. The verifier MUST validate \(Y\) before accepting the association.
 
 \section{5. Ring VRF}\label{ring-vrf}
 

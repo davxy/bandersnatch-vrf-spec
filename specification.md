@@ -187,12 +187,12 @@ Where $\overline{io}$ is a sequence of $(I_i, O_i)$ input/output pairs.
 
 The transcript provides a Fiat-Shamir transform with an absorb/squeeze
 interface. Data is absorbed into an internal hash state; output bytes are
-squeezed from it. After the first squeeze, no further absorbs are permitted.
+squeezed from it. After the first squeeze, $\texttt{absorb}$ MUST NOT be called.
 
 **Abstract interface**:
 
 - $\texttt{new\_transcript}()$: Create a fresh transcript instance and absorb $\texttt{suite\_id}$.
-- $\texttt{absorb}(data)$: Feed bytes into the hash state. Must not be called after squeeze.
+- $\texttt{absorb}(data)$: Feed bytes into the hash state. MUST NOT be called after squeeze.
 - $\texttt{squeeze}(n) \to \S^n$: Produce $n$ output bytes.
 - $\texttt{fork}()$: Clone the transcript state.
 
@@ -501,6 +501,16 @@ proofs with the same (secret, input, ad) but different blinding factors.
 
 Note: no public key appears in the verify inputs -- verification uses the
 committed key $\bar{Y}$ from the proof.
+
+## 4.3. Unblinding
+
+To link a Pedersen VRF proof to a specific public key, the prover reveals
+the blinding factor $b$ and the verifier checks:
+
+$$\bar{Y} = Y + b \cdot B$$
+
+where $Y \in \G \setminus \{\mathcal{O}\}$ is the claimed public key. The
+verifier MUST validate $Y$ before accepting the association.
 
 # 5. Ring VRF
 
