@@ -799,6 +799,86 @@ all points are multiples of \(G\).
   \(\theta \gets \top \text{ if } s \cdot I_m = R + c \cdot O_m \text{ else } \bot\)
 \end{enumerate}
 
+\subsection{3.3. Batch Verify}\label{batch-verify}
+
+Multiple Thin VRF proofs can be verified together by combining the
+individual verification equations with random weights (Schwartz-Zippel
+lemma).
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  For \(j = 0, \ldots, N-1\): a tuple
+  \((Y_j, \overline{io}_j, ad_j, \pi_j)\) where:
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \(Y_j \in \bold{G}\): Public key.
+  \item
+    \(\overline{io}_j \in (\bold{G}\times \bold{G})^{M_j}\): VRF
+    input/output pairs.
+  \item
+    \(ad_j \in \bold{\Sigma}^*\): Additional data octet-string.
+  \item
+    \(\pi_j = (R_j, s_j) \in (\bold{G}, \bold{F})\): Thin VRF proof.
+  \end{itemize}
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\theta \in \{ \top, \bot \}\): \(\top\) if all proofs verify,
+  \(\bot\) otherwise.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  For each proof \(j\):
+
+  \begin{enumerate}
+  \def\labelenumii{\alph{enumii}.}
+  \tightlist
+  \item
+    Validate \(Y_j\), \(R_j\), and all \(I_{j,i}, O_{j,i}\)
+    \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if any is
+    invalid or the identity.
+  \item
+    \(\overline{io}'_j \gets [(G, Y_j)] \;\Vert\; \overline{io}_j\)
+  \item
+    \((T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}'_j, ad_j)\)
+  \item
+    \(c_j \gets \texttt{challenge}([R_j], T_j)\)
+  \end{enumerate}
+\item
+  Derive random weights:
+
+  \begin{enumerate}
+  \def\labelenumii{\alph{enumii}.}
+  \tightlist
+  \item
+    \(T_w \gets \texttt{new\_transcript}()\)
+  \item
+    \(T_w.\texttt{absorb}(\texttt{"thin-batch"})\)
+  \item
+    For each \(j\):
+    \(T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j))\)
+  \end{enumerate}
+\item
+  Check the combined equation:
+  \[\sum_{j=0}^{N-1} w_j \cdot (s_j \cdot I_{m,j} - R_j - c_j \cdot O_{m,j}) = \mathcal{O}\]
+  where
+  \(w_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))\).
+\end{enumerate}
+
 \section{4. Pedersen VRF}\label{pedersen-vrf}
 
 Pedersen VRF resembles IETF EC-VRF but replaces the public key with a
@@ -948,6 +1028,86 @@ reveals the blinding factor \(b\) and the verifier checks:
 
 where \(Y \in \bold{G}\setminus \{\mathcal{O}\}\) is the claimed public
 key. The verifier MUST validate \(Y\) before accepting the association.
+
+\subsection{4.4. Batch Verify}\label{batch-verify-1}
+
+Multiple Pedersen VRF proofs can be verified together by combining the
+individual verification equations with random weights (Schwartz-Zippel
+lemma). Each proof contributes two equations (VRF correctness and
+Pedersen commitment correctness), each weighted by an independent random
+scalar.
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  For \(j = 0, \ldots, N-1\): a tuple \((\overline{io}_j, ad_j, \pi_j)\)
+  where:
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \(\overline{io}_j \in (\bold{G}\times \bold{G})^{M_j}\): VRF
+    input/output pairs.
+  \item
+    \(ad_j \in \bold{\Sigma}^*\): Additional data octet-string.
+  \item
+    \(\pi_j = (\bar{Y}_j, R_j, O_{k,j}, s_j, s_{b,j}) \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
+    Pedersen proof.
+  \end{itemize}
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\theta \in \{ \top, \bot \}\): \(\top\) if all proofs verify,
+  \(\bot\) otherwise.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  For each proof \(j\):
+
+  \begin{enumerate}
+  \def\labelenumii{\alph{enumii}.}
+  \tightlist
+  \item
+    Validate \(\bar{Y}_j\), \(R_j\), \(O_{k,j}\), and all
+    \(I_{j,i}, O_{j,i}\) \(\in \bold{G}\setminus \{\mathcal{O}\}\),
+    output \(\bot\) if any is invalid or the identity.
+  \item
+    \((T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}_j, ad_j)\)
+  \item
+    \(c_j \gets \texttt{challenge}([\bar{Y}_j, R_j, O_{k,j}], T_j)\)
+  \end{enumerate}
+\item
+  Derive random weights:
+
+  \begin{enumerate}
+  \def\labelenumii{\alph{enumii}.}
+  \tightlist
+  \item
+    \(T_w \gets \texttt{new\_transcript}()\)
+  \item
+    \(T_w.\texttt{absorb}(\texttt{"pedersen-batch"})\)
+  \item
+    For each \(j\):
+    \(T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j) \;\Vert\; \texttt{enc\_scalar}(s_{b,j}))\)
+  \end{enumerate}
+\item
+  Check the combined equations:
+  \[\sum_{j=0}^{N-1} t_j \cdot (O_{k,j} + c_j \cdot O_{m,j} - s_j \cdot I_{m,j}) + u_j \cdot (R_j + c_j \cdot \bar{Y}_j - s_j \cdot G - s_{b,j} \cdot B) = \mathcal{O}\]
+  where \(buf_j \gets T_w.\texttt{squeeze}(32)\),
+  \(t_j \gets \texttt{dec\_scalar\_mod}(buf_j[0..16])\),
+  \(u_j \gets \texttt{dec\_scalar\_mod}(buf_j[16..32])\).
+\end{enumerate}
 
 \section{5. Ring VRF}\label{ring-vrf}
 

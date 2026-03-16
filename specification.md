@@ -424,6 +424,40 @@ into a single check that collapses when all points are multiples of $G$.
 4. $c \gets \texttt{challenge}([R], T)$
 5. $\theta \gets \top \text{ if } s \cdot I_m = R + c \cdot O_m \text{ else } \bot$
 
+## 3.3. Batch Verify
+
+Multiple Thin VRF proofs can be verified together by combining the individual
+verification equations with random weights (Schwartz-Zippel lemma).
+
+**Input**:
+
+- For $j = 0, \ldots, N-1$: a tuple $(Y_j, \overline{io}_j, ad_j, \pi_j)$ where:
+  - $Y_j \in \G$: Public key.
+  - $\overline{io}_j \in (\G \times \G)^{M_j}$: VRF input/output pairs.
+  - $ad_j \in \S^*$: Additional data octet-string.
+  - $\pi_j = (R_j, s_j) \in (\G, \F)$: Thin VRF proof.
+
+**Output**:
+
+- $\theta \in \{ \top, \bot \}$: $\top$ if all proofs verify, $\bot$ otherwise.
+
+**Steps**:
+
+1. For each proof $j$:
+   a. Validate $Y_j$, $R_j$, and all $I_{j,i}, O_{j,i}$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
+   b. $\overline{io}'_j \gets [(G, Y_j)] \;\Vert\; \overline{io}_j$
+   c. $(T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}'_j, ad_j)$
+   d. $c_j \gets \texttt{challenge}([R_j], T_j)$
+
+2. Derive random weights:
+   a. $T_w \gets \texttt{new\_transcript}()$
+   b. $T_w.\texttt{absorb}(\texttt{"thin-batch"})$
+   c. For each $j$: $T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j))$
+
+3. Check the combined equation:
+   $$\sum_{j=0}^{N-1} w_j \cdot (s_j \cdot I_{m,j} - R_j - c_j \cdot O_{m,j}) = \mathcal{O}$$
+   where $w_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))$.
+
 
 # 4. Pedersen VRF
 
@@ -514,6 +548,40 @@ $$\bar{Y} = Y + b \cdot B$$
 
 where $Y \in \G \setminus \{\mathcal{O}\}$ is the claimed public key. The
 verifier MUST validate $Y$ before accepting the association.
+
+## 4.4. Batch Verify
+
+Multiple Pedersen VRF proofs can be verified together by combining the
+individual verification equations with random weights (Schwartz-Zippel lemma).
+Each proof contributes two equations (VRF correctness and Pedersen commitment
+correctness), each weighted by an independent random scalar.
+
+**Input**:
+
+- For $j = 0, \ldots, N-1$: a tuple $(\overline{io}_j, ad_j, \pi_j)$ where:
+  - $\overline{io}_j \in (\G \times \G)^{M_j}$: VRF input/output pairs.
+  - $ad_j \in \S^*$: Additional data octet-string.
+  - $\pi_j = (\bar{Y}_j, R_j, O_{k,j}, s_j, s_{b,j}) \in (\G, \G, \G, \F, \F)$: Pedersen proof.
+
+**Output**:
+
+- $\theta \in \{ \top, \bot \}$: $\top$ if all proofs verify, $\bot$ otherwise.
+
+**Steps**:
+
+1. For each proof $j$:
+   a. Validate $\bar{Y}_j$, $R_j$, $O_{k,j}$, and all $I_{j,i}, O_{j,i}$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
+   b. $(T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}_j, ad_j)$
+   c. $c_j \gets \texttt{challenge}([\bar{Y}_j, R_j, O_{k,j}], T_j)$
+
+2. Derive random weights:
+   a. $T_w \gets \texttt{new\_transcript}()$
+   b. $T_w.\texttt{absorb}(\texttt{"pedersen-batch"})$
+   c. For each $j$: $T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j) \;\Vert\; \texttt{enc\_scalar}(s_{b,j}))$
+
+3. Check the combined equations:
+   $$\sum_{j=0}^{N-1} t_j \cdot (O_{k,j} + c_j \cdot O_{m,j} - s_j \cdot I_{m,j}) + u_j \cdot (R_j + c_j \cdot \bar{Y}_j - s_j \cdot G - s_{b,j} \cdot B) = \mathcal{O}$$
+   where $buf_j \gets T_w.\texttt{squeeze}(32)$, $t_j \gets \texttt{dec\_scalar\_mod}(buf_j[0..16])$, $u_j \gets \texttt{dec\_scalar\_mod}(buf_j[16..32])$.
 
 # 5. Ring VRF
 
