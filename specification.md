@@ -426,8 +426,9 @@ into a single check that collapses when all points are multiples of $G$.
 
 ## 3.3. Batch Verify
 
-Multiple Thin VRF proofs can be verified together by combining the individual
-verification equations with random weights (Schwartz-Zippel lemma).
+Multiple Thin VRF proofs can be verified together by combining the
+individual verification equations with random weights (Schwartz-Zippel
+lemma).
 
 **Input**:
 
@@ -552,9 +553,9 @@ verifier MUST validate $Y$ before accepting the association.
 ## 4.4. Batch Verify
 
 Multiple Pedersen VRF proofs can be verified together by combining the
-individual verification equations with random weights (Schwartz-Zippel lemma).
-Each proof contributes two equations (VRF correctness and Pedersen commitment
-correctness), each weighted by an independent random scalar.
+individual verification equations with random weights (Schwartz-Zippel
+lemma). Each proof contributes two equations (VRF correctness and Pedersen
+commitment correctness), each weighted by an independent random scalar.
 
 **Input**:
 
