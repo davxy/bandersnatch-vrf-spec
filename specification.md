@@ -131,29 +131,7 @@ squeezed from it. After the first squeeze, $\texttt{absorb}$ MUST NOT be called.
 - $\texttt{squeeze}(n \in \mathbb{N}) \to \S^n$: Produce $n$ output bytes.
 - $\texttt{fork}() \to T$: Clone the transcript state.
 
-**Concrete construction** (`HashTranscript<SHA-512>`):
-
-*Initialization*: $\texttt{new\_transcript}()$ creates a fresh SHA-512 state and
-feeds $\texttt{suite\_id}$ into it.
-
-*Absorb*: feeds raw bytes directly into the SHA-512 state. Consecutive absorb
-calls are equivalent to a single absorb of the concatenated data. This is safe
-because all protocol fields use fixed-width encoding ($\texttt{enc\_point}$: 32
-bytes, $\texttt{enc\_scalar}$: 32 bytes, $\texttt{enc\_32}$: 4 bytes, domain
-tags: 1 byte) or explicit length prefixing ($ad$ via
-$\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad$), so the byte stream is
-unambiguous given the inputs agreed upon by both parties.
-
-*Squeeze* (counter-mode XOF): on the first squeeze call, finalize the SHA-512
-state to obtain a 64-byte $seed$. Then produce output blocks:
-
-$$block_i = \text{SHA-512}(seed \;\Vert\; \texttt{enc\_32}(i)) \quad \text{for } i = 0, 1, 2, \ldots$$
-
-Each block yields 64 bytes. Output is read sequentially across blocks; partial
-block state is preserved between squeeze calls.
-
-*Fork*: duplicates the full internal state (including any partial block position
-if squeezing has begun).
+A concrete instantiation (`HashTranscript<SHA-512>`) is given in Appendix B.
 
 ### 1.5.2. VRF Input
 
@@ -734,7 +712,34 @@ $b$ as a fresh uniformly random scalar rather than using this deterministic meth
 1. $T.\texttt{absorb}(\texttt{PedersenBlinding})$
 2. $b \gets \texttt{nonce}(sk, T)$
 
-# Appendix B. Behavior with Zero I/O Pairs
+# Appendix B. HashTranscript Construction
+
+Concrete instantiation of the transcript interface (section 1.5.1) using SHA-512.
+
+**Initialization**: $\texttt{new\_transcript}()$ creates a fresh SHA-512 state and
+feeds $\texttt{suite\_id}$ into it.
+
+**Absorb**: feeds raw bytes directly into the SHA-512 state. Consecutive absorb
+calls are equivalent to a single absorb of the concatenated data. This is safe
+because all protocol fields use fixed-width encoding ($\texttt{enc\_point}$: 32
+bytes, $\texttt{enc\_scalar}$: 32 bytes, $\texttt{enc\_32}$: 4 bytes, domain
+tags: 1 byte) or explicit length prefixing ($ad$ via
+$\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad$), so the byte stream is
+unambiguous given the inputs agreed upon by both parties.
+
+**Squeeze** (counter-mode XOF): on the first squeeze call, finalize the SHA-512
+state to obtain a 64-byte $seed$. Then produce output blocks:
+
+$$block_i = \text{SHA-512}(seed \;\Vert\; \texttt{enc\_32}(i)) \quad \text{for } i = 0, 1, 2, \ldots$$
+
+Each block yields 64 bytes. Output is read sequentially across blocks; partial
+block state is preserved between squeeze calls.
+
+**Fork**: duplicates the full internal state (including any partial block position
+if squeezing has begun).
+
+
+# Appendix C. Behavior with Zero I/O Pairs
 
 When $n = 0$, the $\texttt{vrf\_transcript}$ procedure (section 1.5.5) sets the
 merged pair to the identity: $(I_m, O_m) = (\mathcal{O}, \mathcal{O})$. This
@@ -764,12 +769,12 @@ The per-scheme behavior is as follows:
 No VRF output can be derived when $n = 0$, since there are no output points
 to hash.
 
-# Appendix C. Test Vectors
+# Appendix D. Test Vectors
 
 The test vectors in this section were generated using `ark-vrf` libraries
 revision `c01eee3`.
 
-## C.1. IETF VRF Test Vectors
+## D.1. IETF VRF Test Vectors
 
 Schema:
 
@@ -883,7 +888,7 @@ b0928e26be7ac81ae06060736aeac044,
 93d20ab13c5a887ddef7d561bdbbd0d04abd37953c8508936b610b1ccd9b5d0a,
 ```
 
-## C.2. Thin VRF Test Vectors
+## D.2. Thin VRF Test Vectors
 
 ```
 sk (x): Secret key,
@@ -995,7 +1000,7 @@ b234d14dd177bd490ac2c73f3c2ae69bc3c4189f18f6dfdeade33cd5c06b6d89,
 40e4e19eb70c38f95befc631ec7fc17c4854738826487a202843d54cbb138107,
 ```
 
-## C.3. Pedersen VRF Test Vectors
+## D.3. Pedersen VRF Test Vectors
 
 Schema:
 
@@ -1141,7 +1146,7 @@ c6919d3724f80a1533d61d4fccc4073fadc109939af4aa608883a8d9dda4fb17,
 a2c836e57a791ed9344c781393915158caaaee95fa897e906f7c5a310a44e31b,
 ```
 
-## C.4. Ring VRF Test Vectors
+## D.4. Ring VRF Test Vectors
 
 KZG SRS parameters are derived from Zcash BLS12-381 [powers of tau ceremony](https://zfnd.org/conclusion-of-the-powers-of-tau-ceremony).
 
