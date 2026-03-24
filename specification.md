@@ -250,7 +250,7 @@ nonce to the I/O pairs and additional data.
 
 **Input**:
 
-- $sk \in \F$: Secret scalar.
+- $d \in \F$: Secret scalar.
 - $T$: Transcript state (consumed).
 
 **Output**:
@@ -260,7 +260,7 @@ nonce to the I/O pairs and additional data.
 **Steps**:
 
 1. $T' \gets T.\texttt{fork}()$
-2. $T'.\texttt{absorb}(\texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(sk))$
+2. $T'.\texttt{absorb}(\texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(d))$
 3. $h \gets T'.\texttt{squeeze}(64)$
 4. $T.\texttt{absorb}(\texttt{Nonce} \;\Vert\; h)$
 5. $k \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))$
@@ -314,8 +314,8 @@ RFC-9381 implementations and test vectors.
 1. $Y \gets x \cdot G$
 2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, \overline{io}, ad)$
 3. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
-4. $k_b \gets k \cdot G$, $\quad k_h \gets k \cdot I_m$
-5. $c \gets \texttt{challenge}([Y, k_b, k_h], T)$
+4. $U \gets k \cdot G$, $\quad V \gets k \cdot I_m$
+5. $c \gets \texttt{challenge}([Y, U, V], T)$
 6. $s \gets k + c \cdot x$
 7. $\pi \gets (c, s)$
 
@@ -344,13 +344,12 @@ RFC-9381 implementations and test vectors.
 # 3. Thin VRF
 
 Thin VRF is derived from the PedVRF construction in section 4 of
-[BCHSV23] [@BCHSV23], reduced to EC-VRF form by setting the blinding factor
-$b = 0$ and using $pk = sk \cdot G$ directly (see remark on page 13 of the
-paper).
-
-The scheme merges the Schnorr key pair $(G, Y)$ and VRF I/O pairs into a single
-DLEQ relation via delinearization, then proves it with a Schnorr-like proof
-$(R, s)$. Storing the nonce commitment $R$ (rather than the challenge $c$)
+[BCHSV23] [@BCHSV23] by removing the blinding mechanism entirely (see remark
+on page 13 of the paper). Without blinding, Pedersen VRF reduces to two
+independent DLEQ checks on $(G, Y)$ and $(I_m, O_m)$ with the same secret $x$.
+Thin VRF merges these into a single DLEQ relation by prepending $(G, Y)$ to
+the I/O pairs and applying delinearization, then proves it with a Schnorr-like
+proof $(R, s)$. Storing the nonce commitment $R$ (rather than the challenge $c$)
 enables batch verification.
 
 **Security**: VRF input points MUST be constructed via hash-to-curve. If a
@@ -373,13 +372,12 @@ into a single check that collapses when all points are multiples of $G$.
 **Steps**:
 
 1. $Y \gets x \cdot G$
-2. $\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}$ (prepend Schnorr pair)
-3. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}', ad)$
-4. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
-5. $R \gets k \cdot I_m$
-6. $c \gets \texttt{challenge}([R], T)$
-7. $s \gets k + c \cdot x$
-8. $\pi \gets (R, s)$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
+3. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
+4. $R \gets k \cdot I_m$
+5. $c \gets \texttt{challenge}([R], T)$
+6. $s \gets k + c \cdot x$
+7. $\pi \gets (R, s)$
 
 ## 3.2. Verify
 
@@ -397,10 +395,9 @@ into a single check that collapses when all points are multiples of $G$.
 **Steps**:
 
 1. Validate $Y$, $R$, and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
-2. $\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}$
-3. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}', ad)$
-4. $c \gets \texttt{challenge}([R], T)$
-5. $\theta \gets \top \text{ if } s \cdot I_m = R + c \cdot O_m \text{ else } \bot$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
+3. $c \gets \texttt{challenge}([R], T)$
+4. $\theta \gets \top \text{ if } s \cdot I_m = R + c \cdot O_m \text{ else } \bot$
 
 ## 3.3. Batch Verify
 
@@ -424,9 +421,8 @@ lemma).
 
 1. For each proof $j$:
    a. Validate $Y_j$, $R_j$, and all $I_{j,i}, O_{j,i}$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
-   b. $\overline{io}'_j \gets [(G, Y_j)] \;\Vert\; \overline{io}_j$
-   c. $(T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}'_j, ad_j)$
-   d. $c_j \gets \texttt{challenge}([R_j], T_j)$
+   b. $(T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y_j)] \;\Vert\; \overline{io}_j, ad_j)$
+   c. $c_j \gets \texttt{challenge}([R_j], T_j)$
 
 2. Derive random weights:
    a. $T_w \gets \texttt{new\_transcript}()$
@@ -665,18 +661,18 @@ in $\F$ is acceptable.
 
 **Output**:
 
-- $secret \in \F$: secret key scalar.
+- $x \in \F$: secret key scalar.
 
 **Steps**:
 
-1. $cnt \gets 0$
+1. $i \gets 0$
 2. $T \gets \texttt{new\_transcript}()$
 3. $T.\texttt{absorb}(seed)$
-4. If $cnt > 0$: $T.\texttt{absorb}(cnt)$ where $cnt$ is encoded as a single octet
-5. $sk \gets \texttt{dec\_scalar\_mod}(seed)$
-6. $secret \gets \texttt{nonce}(sk, T)$
-7. If $secret = 0$: increment $cnt$ and go to step 2
-8. Return $secret$
+4. If $i > 0$: $T.\texttt{absorb}(i)$ where $i$ is encoded as a single octet
+5. $d \gets \texttt{dec\_scalar\_mod}(seed)$
+6. $x \gets \texttt{nonce}(d, T)$
+7. If $x = 0$: increment $i$ and go to step 2
+8. Return $x$
 
 The seed is absorbed into the transcript and also passed as a scalar to the
 $\texttt{nonce}$ procedure (section 1.5.6), ensuring seed entropy flows through
@@ -690,7 +686,7 @@ from the secret key and the VRF transcript state, using the nonce function
 test vector generation; implementations may use any method that produces a
 uniformly random scalar in $\F$.
 
-**Linkability warning**: because $b$ is derived deterministically from $(sk, T)$,
+**Linkability warning**: because $b$ is derived deterministically from $(x, T)$,
 two Pedersen VRF proofs with the same secret key, I/O pairs, and additional data
 will produce the same blinding factor $b$ and therefore the same blinded public
 key $\bar{Y} = x \cdot G + b \cdot B$. An observer can detect that both proofs
@@ -700,7 +696,7 @@ $b$ as a fresh uniformly random scalar rather than using this deterministic meth
 
 **Input**:
 
-- $sk \in \F$: Secret scalar.
+- $x \in \F$: Secret scalar.
 - $T$: Transcript state (from $\texttt{vrf\_transcript}$).
 
 **Output**:
@@ -710,7 +706,7 @@ $b$ as a fresh uniformly random scalar rather than using this deterministic meth
 **Steps**:
 
 1. $T.\texttt{absorb}(\texttt{PedersenBlinding})$
-2. $b \gets \texttt{nonce}(sk, T)$
+2. $b \gets \texttt{nonce}(x, T)$
 
 # Appendix B. HashTranscript Construction
 

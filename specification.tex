@@ -494,7 +494,7 @@ binding the nonce to the I/O pairs and additional data.
 \begin{itemize}
 \tightlist
 \item
-  \(sk \in \bold{F}\): Secret scalar.
+  \(d \in \bold{F}\): Secret scalar.
 \item
   \(T\): Transcript state (consumed).
 \end{itemize}
@@ -515,7 +515,7 @@ binding the nonce to the I/O pairs and additional data.
 \item
   \(T' \gets T.\texttt{fork}()\)
 \item
-  \(T'.\texttt{absorb}(\texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(sk))\)
+  \(T'.\texttt{absorb}(\texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(d))\)
 \item
   \(h \gets T'.\texttt{squeeze}(64)\)
 \item
@@ -610,9 +610,9 @@ standard RFC-9381 implementations and test vectors.
 \item
   \(k \gets \texttt{nonce}(x, T.\texttt{fork}())\)
 \item
-  \(k_b \gets k \cdot G\), \(\quad k_h \gets k \cdot I_m\)
+  \(U \gets k \cdot G\), \(\quad V \gets k \cdot I_m\)
 \item
-  \(c \gets \texttt{challenge}([Y, k_b, k_h], T)\)
+  \(c \gets \texttt{challenge}([Y, U, V], T)\)
 \item
   \(s \gets k + c \cdot x\)
 \item
@@ -669,12 +669,12 @@ standard RFC-9381 implementations and test vectors.
 \section{3. Thin VRF}\label{thin-vrf}
 
 Thin VRF is derived from the PedVRF construction in section 4 of
-\href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]}, reduced to
-EC-VRF form by setting the blinding factor \(b = 0\) and using
-\(pk = sk \cdot G\) directly (see remark on page 13 of the paper).
-
-The scheme merges the Schnorr key pair \((G, Y)\) and VRF I/O pairs into
-a single DLEQ relation via delinearization, then proves it with a
+\href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]} by removing the
+blinding mechanism entirely (see remark on page 13 of the paper).
+Without blinding, Pedersen VRF reduces to two independent DLEQ checks on
+\((G, Y)\) and \((I_m, O_m)\) with the same secret \(x\). Thin VRF
+merges these into a single DLEQ relation by prepending \((G, Y)\) to the
+I/O pairs and applying delinearization, then proves it with a
 Schnorr-like proof \((R, s)\). Storing the nonce commitment \(R\)
 (rather than the challenge \(c\)) enables batch verification.
 
@@ -715,10 +715,7 @@ all points are multiples of \(G\).
 \item
   \(Y \gets x \cdot G\)
 \item
-  \(\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}\) (prepend
-  Schnorr pair)
-\item
-  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}', ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)\)
 \item
   \(k \gets \texttt{nonce}(x, T.\texttt{fork}())\)
 \item
@@ -767,9 +764,7 @@ all points are multiples of \(G\).
   \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if any is
   invalid or the identity.
 \item
-  \(\overline{io}' \gets [(G, Y)] \;\Vert\; \overline{io}\)
-\item
-  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}', ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)\)
 \item
   \(c \gets \texttt{challenge}([R], T)\)
 \item
@@ -829,9 +824,7 @@ lemma).
     \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if any is
     invalid or the identity.
   \item
-    \(\overline{io}'_j \gets [(G, Y_j)] \;\Vert\; \overline{io}_j\)
-  \item
-    \((T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, \overline{io}'_j, ad_j)\)
+    \((T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y_j)] \;\Vert\; \overline{io}_j, ad_j)\)
   \item
     \(c_j \gets \texttt{challenge}([R_j], T_j)\)
   \end{enumerate}
@@ -1279,7 +1272,7 @@ scalars in \(\bold{F}\) is acceptable.
 \begin{itemize}
 \tightlist
 \item
-  \(secret \in \bold{F}\): secret key scalar.
+  \(x \in \bold{F}\): secret key scalar.
 \end{itemize}
 
 \textbf{Steps}:
@@ -1288,22 +1281,22 @@ scalars in \(\bold{F}\) is acceptable.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(cnt \gets 0\)
+  \(i \gets 0\)
 \item
   \(T \gets \texttt{new\_transcript}()\)
 \item
   \(T.\texttt{absorb}(seed)\)
 \item
-  If \(cnt > 0\): \(T.\texttt{absorb}(cnt)\) where \(cnt\) is encoded as
-  a single octet
+  If \(i > 0\): \(T.\texttt{absorb}(i)\) where \(i\) is encoded as a
+  single octet
 \item
-  \(sk \gets \texttt{dec\_scalar\_mod}(seed)\)
+  \(d \gets \texttt{dec\_scalar\_mod}(seed)\)
 \item
-  \(secret \gets \texttt{nonce}(sk, T)\)
+  \(x \gets \texttt{nonce}(d, T)\)
 \item
-  If \(secret = 0\): increment \(cnt\) and go to step 2
+  If \(x = 0\): increment \(i\) and go to step 2
 \item
-  Return \(secret\)
+  Return \(x\)
 \end{enumerate}
 
 The seed is absorbed into the transcript and also passed as a scalar to
@@ -1322,7 +1315,7 @@ implementations may use any method that produces a uniformly random
 scalar in \(\bold{F}\).
 
 \textbf{Linkability warning}: because \(b\) is derived deterministically
-from \((sk, T)\), two Pedersen VRF proofs with the same secret key, I/O
+from \((x, T)\), two Pedersen VRF proofs with the same secret key, I/O
 pairs, and additional data will produce the same blinding factor \(b\)
 and therefore the same blinded public key
 \(\bar{Y} = x \cdot G + b \cdot B\). An observer can detect that both
@@ -1336,7 +1329,7 @@ rather than using this deterministic method.
 \begin{itemize}
 \tightlist
 \item
-  \(sk \in \bold{F}\): Secret scalar.
+  \(x \in \bold{F}\): Secret scalar.
 \item
   \(T\): Transcript state (from \(\texttt{vrf\_transcript}\)).
 \end{itemize}
@@ -1357,7 +1350,7 @@ rather than using this deterministic method.
 \item
   \(T.\texttt{absorb}(\texttt{PedersenBlinding})\)
 \item
-  \(b \gets \texttt{nonce}(sk, T)\)
+  \(b \gets \texttt{nonce}(x, T)\)
 \end{enumerate}
 
 \section{Appendix B. HashTranscript
