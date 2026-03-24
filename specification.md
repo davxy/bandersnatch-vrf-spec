@@ -60,7 +60,26 @@ x &= 188861788672009604970018359176490912190570800949376095191404405397609399373
 y &= 19188667384257783945677642223292697773471335439753913231509108946878080696678
 \end{aligned}$$
 
-## 1.3. Constants
+## 1.3. VRF-AD
+
+Regardless of the specific scheme, a *Verifiable Random Function with Additional
+Data (VRF-AD)* can be concisely represented by three primary functions:
+
+**Abstract interface**:
+
+- $\texttt{prove}(x \in \F, \overline{io} \in (\G \times \G)^n, ad \in \S^*) \to \Pi$
+- $\texttt{verify}(Y \in \G, \overline{io} \in (\G \times \G)^n, ad \in \S^*, \Pi) \to (\top \mid \bot)$
+- $\texttt{output}(O \in \G) \to o \in \S^N$
+
+For Pedersen VRF (section 4), the public key $Y$ is not an explicit input to
+$\texttt{verify}$; the proof $\Pi$ carries a blinded commitment $\bar{Y}$ instead.
+
+The additional data $ad$ is an arbitrary-length octet-string signed together with
+the VRF output. It does not influence the produced VRF output.
+The length of $ad$ MUST NOT exceed $2^{32} - 1$ bytes, as the length is encoded
+via $\texttt{enc\_32}$ in the transcript (section 1.6.1).
+
+## 1.4. Constants
 
 - `suite_id` = `[0x01, 0x01, 0x01, 0x01]` — a 4-byte fixed-width identifier encoding
   the protocol profile:
@@ -94,7 +113,7 @@ Domain separation tags used throughout the protocol:
 | ThinVrf | 0x11 | Thin VRF scheme identifier |
 | PedersenVrf | 0x12 | Pedersen VRF scheme identifier |
 
-## 1.4. Codec
+## 1.5. Codec
 
 - $\texttt{enc\_scalar}(s \in \F)$: Encodes a scalar into 32 octets in little-endian
   representation.
@@ -116,9 +135,9 @@ Aggregate types (e.g. proofs) MUST be encoded as the concatenation of their
 individual fields in the order given by the structure definition, without any
 separator.
 
-## 1.5. Procedures
+## 1.6. Procedures
 
-### 1.5.1. Transcript
+### 1.6.1. Transcript
 
 The transcript provides a Fiat-Shamir transform with an absorb/squeeze
 interface. Data is absorbed into an internal hash state; output bytes are
@@ -133,7 +152,7 @@ squeezed from it. After the first squeeze, $\texttt{absorb}$ MUST NOT be called.
 
 A concrete instantiation (`HashTranscript<SHA-512>`) is given in Appendix B.
 
-### 1.5.2. VRF Input
+### 1.6.2. VRF Input
 
 The VRF input point $I \in \G$ is derived from the input octet-string using the
 $\texttt{hash\_to\_curve}$ method defined in section 3 of [RFC-9380] [@RFC9380],
@@ -158,7 +177,7 @@ octet-string using the procedure above. Accepting prover-supplied input points
 without recomputation breaks the VRF security guarantees, and in the case of
 Thin VRF (section 3), enables trivial forgery.
 
-### 1.5.3. VRF Output
+### 1.6.3. VRF Output
 
 The VRF output point is generated from the VRF input point and secret key scalar:
 
@@ -190,30 +209,34 @@ obtain consistent output hashes across schemes for the same underlying evaluatio
 3. $T.\texttt{absorb}(\texttt{enc\_point}(O))$
 4. $o \gets T.\texttt{squeeze}(N)$
 
-### 1.5.4. VRF-AD
+### 1.6.4. Delinearization
 
-Regardless of the specific scheme, a *Verifiable Random Function with Additional
-Data (VRF-AD)* can be concisely represented by three primary functions:
+When multiple input/output pairs are provided ($n \geq 2$), they are merged into
+a single pair using delinearization scalars derived from the transcript. This
+prevents an attacker from mixing components across pairs.
 
-**Abstract interface**:
+**Input**:
 
-- $\texttt{prove}(x \in \F, \overline{io} \in (\G \times \G)^n, ad \in \S^*) \to \Pi$
-- $\texttt{verify}(Y \in \G, \overline{io} \in (\G \times \G)^n, ad \in \S^*, \Pi) \to (\top \mid \bot)$
-- $\texttt{output}(O \in \G) \to o \in \S^N$
+- $\overline{io} \in (\G \times \G)^n$: Sequence of input/output pairs.
+- $T$: Transcript state.
 
-For Pedersen VRF (section 4), the public key $Y$ is not an explicit input to
-$\texttt{verify}$; the proof $\Pi$ carries a blinded commitment $\bar{Y}$ instead.
+**Output**:
 
-The additional data $ad$ is an arbitrary-length octet-string signed together with
-the VRF output. It does not influence the produced VRF output.
-The length of $ad$ MUST NOT exceed $2^{32} - 1$ bytes, as the length is encoded
-via $\texttt{enc\_32}$ in the transcript (section 1.5.1).
+- $(I_m, O_m) \in \G \times \G$: Merged input/output pair.
 
-### 1.5.5. VRF Transcript
+**Steps**:
+
+1. If $n = 0$: return $(\mathcal{O}, \mathcal{O})$
+2. If $n = 1$: return $(I_0, O_0)$
+3. $T.\texttt{absorb}(\texttt{Delinearize})$
+4. For $i = 0, \ldots, n-1$: $z_i \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
+5. $I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i$
+
+### 1.6.5. VRF Transcript
 
 Shared transcript construction used by all VRF-AD schemes. Absorbs
-input/output pairs, derives delinearization scalars, merges pairs into
-a single pair, and absorbs additional data.
+input/output pairs, merges them via delinearization (section 1.6.4),
+and absorbs additional data.
 
 **Input**:
 
@@ -232,17 +255,11 @@ a single pair, and absorbs additional data.
 2. $T.\texttt{absorb}(scheme || \texttt{enc\_32}(n))$
 3. For each $(I_i, O_i)$ in $\overline{io}$:
    $T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))$
-4. Delinearize:
-     - If $n = 0$: $(I_m, O_m) \gets (\mathcal{O}, \mathcal{O})$
-     - If $n = 1$: $(I_m, O_m) \gets (I_0, O_0)$
-     - If $n \geq 2$:
-       a. $T' \gets T.\texttt{fork}(),\ T'.\texttt{absorb}(\texttt{Delinearize})$
-       b. For $i = 0, \ldots, n-1$: $z_i \gets \texttt{dec\_scalar\_mod}(T'.\texttt{squeeze}(\texttt{challenge\_len}))$
-       c. $I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i$
+4. $(I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{fork}())$
 5. $T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)$
 6. Return $(T, (I_m, O_m))$
 
-### 1.5.6. Nonce
+### 1.6.6. Nonce
 
 Deterministic nonce generation inspired by [RFC-8032] section 5.1.6. The
 transcript carries shared state from $\texttt{vrf\_transcript}$, binding the
@@ -269,7 +286,7 @@ nonce to the I/O pairs and additional data.
 Note: $T$ is consumed (mutated then squeezed). Callers must pass forks where
 the transcript is needed afterwards.
 
-### 1.5.7. Challenge
+### 1.6.7. Challenge
 
 Derives a challenge scalar by absorbing curve points into the transcript and
 squeezing.
@@ -457,7 +474,7 @@ y &= 465448682068831493327822589387022161065982476834237270028856641115676082204
 \end{aligned}$$
 
 A point with unknown discrete logarithm derived using the `hash_to_curve` function
-as described in section 1.5.2 with input the string: `"pedersen-blinding"`.
+as described in section 1.6.2 with input the string: `"pedersen-blinding"`.
 
 ## 4.1. Prove
 
@@ -585,7 +602,7 @@ y &= 418989722593882020320555658407300044136536983297026306973173537219660906632
 \end{aligned}$$
 
 A point with unknown discrete logarithm derived using the `hash_to_curve` function
-as described in section 1.5.2 with input the string: `"ring-accumulator"`.
+as described in section 1.6.2 with input the string: `"ring-accumulator"`.
 
 - Padding point $\square \in \G$ is defined as:
 $$\footnotesize\begin{aligned}
@@ -594,7 +611,7 @@ y &= 217534114100846713465816502503223487788063572318084075624224011698202134234
 \end{aligned}$$
 
 A point with unknown discrete logarithm derived using the `hash_to_curve` function
-as described in section 1.5.2 with input the string: `"ring-padding"`.
+as described in section 1.6.2 with input the string: `"ring-padding"`.
 
 - Polynomials domain ($\langle \omega \rangle = \mathbb{D}$) generator:
 $$\footnotesize \omega = 49307615728544765012166121802278658070711169839041683575071795236746050763237$$
@@ -675,14 +692,14 @@ in $\F$ is acceptable.
 8. Return $x$
 
 The seed is absorbed into the transcript and also passed as a scalar to the
-$\texttt{nonce}$ procedure (section 1.5.6), ensuring seed entropy flows through
+$\texttt{nonce}$ procedure (section 1.6.6), ensuring seed entropy flows through
 both the transcript state and the secret scalar input paths.
 
 ## A.2. Deterministic Blinding Factor Generation
 
 The following method generates the Pedersen VRF blinding factor deterministically
 from the secret key and the VRF transcript state, using the nonce function
-(section 1.5.6) with a distinct domain separator. It is provided primarily for
+(section 1.6.6) with a distinct domain separator. It is provided primarily for
 test vector generation; implementations may use any method that produces a
 uniformly random scalar in $\F$.
 
@@ -710,7 +727,7 @@ $b$ as a fresh uniformly random scalar rather than using this deterministic meth
 
 # Appendix B. HashTranscript Construction
 
-Concrete instantiation of the transcript interface (section 1.5.1) using SHA-512.
+Concrete instantiation of the transcript interface (section 1.6.1) using SHA-512.
 
 **Initialization**: $\texttt{new\_transcript}()$ creates a fresh SHA-512 state and
 feeds $\texttt{suite\_id}$ into it.
@@ -737,7 +754,7 @@ if squeezing has begun).
 
 # Appendix C. Behavior with Zero I/O Pairs
 
-When $n = 0$, the $\texttt{vrf\_transcript}$ procedure (section 1.5.5) sets the
+When $n = 0$, the $\texttt{vrf\_transcript}$ procedure (section 1.6.5) sets the
 merged pair to the identity: $(I_m, O_m) = (\mathcal{O}, \mathcal{O})$. This
 causes the VRF-specific verification checks to become trivially satisfied, since
 any scalar multiplication with $\mathcal{O}$ yields $\mathcal{O}$. The
