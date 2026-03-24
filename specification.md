@@ -268,7 +268,7 @@ nonce to the I/O pairs and additional data.
 **Input**:
 
 - $d \in \F$: Secret scalar.
-- $T$: Transcript state (consumed).
+- $T$: Transcript state.
 
 **Output**:
 
@@ -283,8 +283,6 @@ nonce to the I/O pairs and additional data.
 5. $k \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))$
 6. If $k = 0$: abort (implementation error; probability $\approx 2^{-253}$).
 
-Note: $T$ is consumed (mutated then squeezed). Callers must pass forks where
-the transcript is needed afterwards.
 
 ### 1.6.7. Challenge
 
@@ -294,7 +292,7 @@ squeezing.
 **Input**:
 
 - $\bar{P} \in \G^m$: Sequence of $m$ points.
-- $T$: Transcript state (consumed).
+- $T$: Transcript state.
 
 **Output**:
 

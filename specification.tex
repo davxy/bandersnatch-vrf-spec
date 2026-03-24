@@ -518,7 +518,7 @@ binding the nonce to the I/O pairs and additional data.
 \item
   \(d \in \bold{F}\): Secret scalar.
 \item
-  \(T\): Transcript state (consumed).
+  \(T\): Transcript state.
 \end{itemize}
 
 \textbf{Output}:
@@ -549,9 +549,6 @@ binding the nonce to the I/O pairs and additional data.
   \(\approx 2^{-253}\)).
 \end{enumerate}
 
-Note: \(T\) is consumed (mutated then squeezed). Callers must pass forks
-where the transcript is needed afterwards.
-
 \subsubsection{1.6.7. Challenge}\label{challenge}
 
 Derives a challenge scalar by absorbing curve points into the transcript
@@ -564,7 +561,7 @@ and squeezing.
 \item
   \(\bar{P} \in \bold{G}^m\): Sequence of \(m\) points.
 \item
-  \(T\): Transcript state (consumed).
+  \(T\): Transcript state.
 \end{itemize}
 
 \textbf{Output}:
