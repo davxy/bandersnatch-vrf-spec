@@ -204,8 +204,8 @@ commitment \(\bar{Y}\) instead.
 The additional data \(ad\) is an arbitrary-length octet-string signed
 together with the VRF output. It does not influence the produced VRF
 output. The length of \(ad\) MUST NOT exceed \(2^{32} - 1\) bytes, as
-the length is encoded via \(\texttt{enc\_32}\) in the transcript
-(section 1.6.1).
+the length is encoded via \(\texttt{enc\_32}\) in the VRF transcript
+(section 1.6.5).
 
 \subsection{1.4. Constants}\label{constants}
 
@@ -259,6 +259,8 @@ Nonce & 0x03 & Nonce derivation \\
 PointToHash & 0x04 & VRF output hashing \\
 Delinearize & 0x05 & Delinearization scalars \\
 PedersenBlinding & 0x80 & Pedersen blinding factor \\
+ThinBatch & 0x81 & Thin VRF batch verification \\
+PedersenBatch & 0x82 & Pedersen VRF batch verification \\
 IetfVrf & 0x10 & IETF VRF scheme identifier \\
 ThinVrf & 0x11 & Thin VRF scheme identifier \\
 PedersenVrf & 0x12 & Pedersen VRF scheme identifier \\
@@ -405,12 +407,18 @@ evaluation.
 \item
   \(T \gets \texttt{new\_transcript}()\)
 \item
-  \(T.\texttt{absorb}(\texttt{PointToHash})\)
-\item
-  \(T.\texttt{absorb}(\texttt{enc\_point}(O))\)
+  \(T.\texttt{absorb}(\texttt{PointToHash} \;\Vert\; \texttt{enc\_point}(O))\)
 \item
   \(o \gets T.\texttt{squeeze}(N)\)
 \end{enumerate}
+
+\textbf{Transcript}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(T = \texttt{suite\_id} \;\Vert\; \texttt{PointToHash} \;\Vert\; \texttt{enc\_point}(O)\)
+\end{itemize}
 
 \subsubsection{1.6.4. Delinearization}\label{delinearization}
 
@@ -433,7 +441,7 @@ pairs.
 \begin{itemize}
 \tightlist
 \item
-  \(T\): Transcript state (with I/O pairs absorbed).
+  \(T\): Transcript state.
 \item
   \((I_m, O_m) \in \bold{G}\times \bold{G}\): Merged input/output pair.
 \end{itemize}
@@ -463,6 +471,16 @@ pairs.
   Return \((T, (I_m, O_m))\)
 \end{enumerate}
 
+\textbf{Transcript}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(T = \texttt{suite\_id} \;\Vert\; \texttt{enc\_point}(I_0) \;\Vert\; \texttt{enc\_point}(O_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(I_{n-1}) \;\Vert\; \texttt{enc\_point}(O_{n-1})\)
+\item
+  \(T' = T \;\Vert\; \texttt{Delinearize}\)
+\end{itemize}
+
 \subsubsection{1.6.5. VRF Transcript}\label{vrf-transcript}
 
 Shared transcript construction used by all VRF-AD schemes. Absorbs
@@ -487,7 +505,7 @@ absorbs additional data.
 \begin{itemize}
 \tightlist
 \item
-  \(T\): Transcript state (with \(ad\) absorbed).
+  \(T\): Transcript state.
 \item
   \((I_m, O_m) \in \bold{G}\times \bold{G}\): Merged input/output pair.
 \end{itemize}
@@ -549,6 +567,16 @@ binding the nonce to the I/O pairs and additional data.
   \(\approx 2^{-253}\)).
 \end{enumerate}
 
+\textbf{Transcript} (where \(T_{in}\) is the caller-supplied state):
+
+\begin{itemize}
+\tightlist
+\item
+  \(T' = T_{in} \;\Vert\; \texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(d)\)
+\item
+  \(T = T_{in} \;\Vert\; \texttt{Nonce} \;\Vert\; h\)
+\end{itemize}
+
 \subsubsection{1.6.7. Challenge}\label{challenge}
 
 Derives a challenge scalar by absorbing curve points into the transcript
@@ -578,13 +606,18 @@ and squeezing.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(T.\texttt{absorb}(\texttt{Challenge})\)
-\item
-  For each \(P_i\) in \(\bar{P}\):
-  \(T.\texttt{absorb}(\texttt{enc\_point}(P_i))\)
+  \(T.\texttt{absorb}(\texttt{Challenge} \;\Vert\; \texttt{enc\_point}(P_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(P_{m-1}))\)
 \item
   \(c \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))\)
 \end{enumerate}
+
+\textbf{Transcript} (where \(T_{in}\) is the caller-supplied state):
+
+\begin{itemize}
+\tightlist
+\item
+  \(T = T_{in} \;\Vert\; \texttt{Challenge} \;\Vert\; \texttt{enc\_point}(P_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(P_{m-1})\)
+\end{itemize}
 
 \section{2. IETF VRF}\label{ietf-vrf}
 
@@ -856,7 +889,7 @@ lemma).
   \item
     \(T_w \gets \texttt{new\_transcript}()\)
   \item
-    \(T_w.\texttt{absorb}(\texttt{"thin-batch"})\)
+    \(T_w.\texttt{absorb}(\texttt{ThinBatch})\)
   \item
     For each \(j\):
     \(T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j))\)
@@ -867,6 +900,14 @@ lemma).
   where
   \(w_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))\).
 \end{enumerate}
+
+\textbf{Transcript}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(T_w = \texttt{suite\_id} \;\Vert\; \texttt{ThinBatch} \;\Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1})\)
+\end{itemize}
 
 \section{4. Pedersen VRF}\label{pedersen-vrf}
 
@@ -1085,7 +1126,7 @@ scalar.
   \item
     \(T_w \gets \texttt{new\_transcript}()\)
   \item
-    \(T_w.\texttt{absorb}(\texttt{"pedersen-batch"})\)
+    \(T_w.\texttt{absorb}(\texttt{PedersenBatch})\)
   \item
     For each \(j\):
     \(T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j) \;\Vert\; \texttt{enc\_scalar}(s_{b,j}))\)
@@ -1097,6 +1138,14 @@ scalar.
   \(t_j \gets \texttt{dec\_scalar\_mod}(buf_j[0..16])\),
   \(u_j \gets \texttt{dec\_scalar\_mod}(buf_j[16..32])\).
 \end{enumerate}
+
+\textbf{Transcript}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(T_w = \texttt{suite\_id} \;\Vert\; \texttt{PedersenBatch} \;\Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \texttt{enc\_scalar}(s_{b,0}) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{b,N-1})\)
+\end{itemize}
 
 \section{5. Ring VRF}\label{ring-vrf}
 

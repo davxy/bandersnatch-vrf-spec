@@ -77,7 +77,7 @@ $\texttt{verify}$; the proof $\Pi$ carries a blinded commitment $\bar{Y}$ instea
 The additional data $ad$ is an arbitrary-length octet-string signed together with
 the VRF output. It does not influence the produced VRF output.
 The length of $ad$ MUST NOT exceed $2^{32} - 1$ bytes, as the length is encoded
-via $\texttt{enc\_32}$ in the transcript (section 1.6.1).
+via $\texttt{enc\_32}$ in the VRF transcript (section 1.6.5).
 
 ## 1.4. Constants
 
@@ -109,6 +109,8 @@ Domain separation tags used throughout the protocol:
 | PointToHash | 0x04 | VRF output hashing |
 | Delinearize | 0x05 | Delinearization scalars |
 | PedersenBlinding | 0x80 | Pedersen blinding factor |
+| ThinBatch | 0x81 | Thin VRF batch verification |
+| PedersenBatch | 0x82 | Pedersen VRF batch verification |
 | IetfVrf | 0x10 | IETF VRF scheme identifier |
 | ThinVrf | 0x11 | Thin VRF scheme identifier |
 | PedersenVrf | 0x12 | Pedersen VRF scheme identifier |
@@ -205,9 +207,12 @@ obtain consistent output hashes across schemes for the same underlying evaluatio
 **Steps**:
 
 1. $T \gets \texttt{new\_transcript}()$
-2. $T.\texttt{absorb}(\texttt{PointToHash})$
-3. $T.\texttt{absorb}(\texttt{enc\_point}(O))$
-4. $o \gets T.\texttt{squeeze}(N)$
+2. $T.\texttt{absorb}(\texttt{PointToHash} \;\Vert\; \texttt{enc\_point}(O))$
+3. $o \gets T.\texttt{squeeze}(N)$
+
+**Transcript**:
+
+- $T = \texttt{suite\_id} \;\Vert\; \texttt{PointToHash} \;\Vert\; \texttt{enc\_point}(O)$
 
 ### 1.6.4. Delinearization
 
@@ -221,7 +226,7 @@ prevents an attacker from mixing components across pairs.
 
 **Output**:
 
-- $T$: Transcript state (with I/O pairs absorbed).
+- $T$: Transcript state.
 - $(I_m, O_m) \in \G \times \G$: Merged input/output pair.
 
 **Steps**:
@@ -235,6 +240,11 @@ prevents an attacker from mixing components across pairs.
 6. For $i = 0, \ldots, n-1$: $z_i \gets \texttt{dec\_scalar\_mod}(T'.\texttt{squeeze}(\texttt{challenge\_len}))$
 7. $I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i$
 8. Return $(T, (I_m, O_m))$
+
+**Transcript**:
+
+- $T = \texttt{suite\_id} \;\Vert\; \texttt{enc\_point}(I_0) \;\Vert\; \texttt{enc\_point}(O_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(I_{n-1}) \;\Vert\; \texttt{enc\_point}(O_{n-1})$
+- $T' = T \;\Vert\; \texttt{Delinearize}$
 
 ### 1.6.5. VRF Transcript
 
@@ -250,7 +260,7 @@ and absorbs additional data.
 
 **Output**:
 
-- $T$: Transcript state (with $ad$ absorbed).
+- $T$: Transcript state.
 - $(I_m, O_m) \in \G \times \G$: Merged input/output pair.
 
 **Steps**:
@@ -283,6 +293,10 @@ nonce to the I/O pairs and additional data.
 5. $k \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))$
 6. If $k = 0$: abort (implementation error; probability $\approx 2^{-253}$).
 
+**Transcript** (where $T_{in}$ is the caller-supplied state):
+
+- $T' = T_{in} \;\Vert\; \texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(d)$
+- $T = T_{in} \;\Vert\; \texttt{Nonce} \;\Vert\; h$
 
 ### 1.6.7. Challenge
 
@@ -300,10 +314,12 @@ squeezing.
 
 **Steps**:
 
-1. $T.\texttt{absorb}(\texttt{Challenge})$
-2. For each $P_i$ in $\bar{P}$: $T.\texttt{absorb}(\texttt{enc\_point}(P_i))$
-3. $c \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
+1. $T.\texttt{absorb}(\texttt{Challenge} \;\Vert\; \texttt{enc\_point}(P_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(P_{m-1}))$
+2. $c \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
 
+**Transcript** (where $T_{in}$ is the caller-supplied state):
+
+- $T = T_{in} \;\Vert\; \texttt{Challenge} \;\Vert\; \texttt{enc\_point}(P_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(P_{m-1})$
 
 # 2. IETF VRF
 
@@ -441,12 +457,16 @@ lemma).
 
 2. Derive random weights:
    a. $T_w \gets \texttt{new\_transcript}()$
-   b. $T_w.\texttt{absorb}(\texttt{"thin-batch"})$
+   b. $T_w.\texttt{absorb}(\texttt{ThinBatch})$
    c. For each $j$: $T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j))$
 
 3. Check the combined equation:
    $$\sum_{j=0}^{N-1} w_j \cdot (s_j \cdot I_{m,j} - R_j - c_j \cdot O_{m,j}) = \mathcal{O}$$
    where $w_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))$.
+
+**Transcript**:
+
+- $T_w = \texttt{suite\_id} \;\Vert\; \texttt{ThinBatch} \;\Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1})$
 
 
 # 4. Pedersen VRF
@@ -566,12 +586,16 @@ commitment correctness), each weighted by an independent random scalar.
 
 2. Derive random weights:
    a. $T_w \gets \texttt{new\_transcript}()$
-   b. $T_w.\texttt{absorb}(\texttt{"pedersen-batch"})$
+   b. $T_w.\texttt{absorb}(\texttt{PedersenBatch})$
    c. For each $j$: $T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j) \;\Vert\; \texttt{enc\_scalar}(s_{b,j}))$
 
 3. Check the combined equations:
    $$\sum_{j=0}^{N-1} t_j \cdot (O_{k,j} + c_j \cdot O_{m,j} - s_j \cdot I_{m,j}) + u_j \cdot (R_j + c_j \cdot \bar{Y}_j - s_j \cdot G - s_{b,j} \cdot B) = \mathcal{O}$$
    where $buf_j \gets T_w.\texttt{squeeze}(32)$, $t_j \gets \texttt{dec\_scalar\_mod}(buf_j[0..16])$, $u_j \gets \texttt{dec\_scalar\_mod}(buf_j[16..32])$.
+
+**Transcript**:
+
+- $T_w = \texttt{suite\_id} \;\Vert\; \texttt{PedersenBatch} \;\Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \texttt{enc\_scalar}(s_{b,0}) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{b,N-1})$
 
 # 5. Ring VRF
 
