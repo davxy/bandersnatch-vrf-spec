@@ -752,7 +752,7 @@ if squeezing has begun).
 
 # Appendix C. Behavior with Zero I/O Pairs
 
-When $n = 0$, the $\texttt{vrf\_transcript}$ procedure (section 1.6.5) sets the
+When $n = 0$, the $\texttt{delinearize}$ procedure (section 1.6.4) sets the
 merged pair to the identity: $(I_m, O_m) = (\mathcal{O}, \mathcal{O})$. This
 causes the VRF-specific verification checks to become trivially satisfied, since
 any scalar multiplication with $\mathcal{O}$ yields $\mathcal{O}$. The
