@@ -426,14 +426,14 @@ pairs.
 \item
   \(\overline{io} \in (\bold{G}\times \bold{G})^n\): Sequence of
   input/output pairs.
-\item
-  \(T\): Transcript state.
 \end{itemize}
 
 \textbf{Output}:
 
 \begin{itemize}
 \tightlist
+\item
+  \(T\): Transcript state (with I/O pairs absorbed).
 \item
   \((I_m, O_m) \in \bold{G}\times \bold{G}\): Merged input/output pair.
 \end{itemize}
@@ -444,16 +444,23 @@ pairs.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  If \(n = 0\): return \((\mathcal{O}, \mathcal{O})\)
+  \(T \gets \texttt{new\_transcript}()\)
 \item
-  If \(n = 1\): return \((I_0, O_0)\)
+  For each \((I_i, O_i)\) in \(\overline{io}\):
+  \(T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))\)
 \item
-  \(T.\texttt{absorb}(\texttt{Delinearize})\)
+  If \(n = 0\): return \((T, (\mathcal{O}, \mathcal{O}))\)
+\item
+  If \(n = 1\): return \((T, (I_0, O_0))\)
+\item
+  \(T' \gets T.\texttt{fork}(),\ T'.\texttt{absorb}(\texttt{Delinearize})\)
 \item
   For \(i = 0, \ldots, n-1\):
-  \(z_i \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))\)
+  \(z_i \gets \texttt{dec\_scalar\_mod}(T'.\texttt{squeeze}(\texttt{challenge\_len}))\)
 \item
   \(I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i\)
+\item
+  Return \((T, (I_m, O_m))\)
 \end{enumerate}
 
 \subsubsection{1.6.5. VRF Transcript}\label{vrf-transcript}
@@ -491,16 +498,9 @@ absorbs additional data.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(T \gets \texttt{new\_transcript}()\)
+  \((T, (I_m, O_m)) \gets \texttt{delinearize}(\overline{io})\)
 \item
-  \(T.\texttt{absorb}(scheme || \texttt{enc\_32}(n))\)
-\item
-  For each \((I_i, O_i)\) in \(\overline{io}\):
-  \(T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))\)
-\item
-  \((I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{fork}())\)
-\item
-  \(T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)\)
+  \(T.\texttt{absorb}(scheme \;\Vert\; \texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)\)
 \item
   Return \((T, (I_m, O_m))\)
 \end{enumerate}

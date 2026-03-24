@@ -218,19 +218,23 @@ prevents an attacker from mixing components across pairs.
 **Input**:
 
 - $\overline{io} \in (\G \times \G)^n$: Sequence of input/output pairs.
-- $T$: Transcript state.
 
 **Output**:
 
+- $T$: Transcript state (with I/O pairs absorbed).
 - $(I_m, O_m) \in \G \times \G$: Merged input/output pair.
 
 **Steps**:
 
-1. If $n = 0$: return $(\mathcal{O}, \mathcal{O})$
-2. If $n = 1$: return $(I_0, O_0)$
-3. $T.\texttt{absorb}(\texttt{Delinearize})$
-4. For $i = 0, \ldots, n-1$: $z_i \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
-5. $I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i$
+1. $T \gets \texttt{new\_transcript}()$
+2. For each $(I_i, O_i)$ in $\overline{io}$:
+   $T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))$
+3. If $n = 0$: return $(T, (\mathcal{O}, \mathcal{O}))$
+4. If $n = 1$: return $(T, (I_0, O_0))$
+5. $T' \gets T.\texttt{fork}(),\ T'.\texttt{absorb}(\texttt{Delinearize})$
+6. For $i = 0, \ldots, n-1$: $z_i \gets \texttt{dec\_scalar\_mod}(T'.\texttt{squeeze}(\texttt{challenge\_len}))$
+7. $I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i$
+8. Return $(T, (I_m, O_m))$
 
 ### 1.6.5. VRF Transcript
 
@@ -251,13 +255,9 @@ and absorbs additional data.
 
 **Steps**:
 
-1. $T \gets \texttt{new\_transcript}()$
-2. $T.\texttt{absorb}(scheme || \texttt{enc\_32}(n))$
-3. For each $(I_i, O_i)$ in $\overline{io}$:
-   $T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))$
-4. $(I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{fork}())$
-5. $T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)$
-6. Return $(T, (I_m, O_m))$
+1. $(T, (I_m, O_m)) \gets \texttt{delinearize}(\overline{io})$
+2. $T.\texttt{absorb}(scheme \;\Vert\; \texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)$
+3. Return $(T, (I_m, O_m))$
 
 ### 1.6.6. Nonce
 
