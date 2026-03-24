@@ -152,32 +152,26 @@ squeezed from it. After the first squeeze, $\texttt{absorb}$ MUST NOT be called.
 - $\texttt{squeeze}(n \in \mathbb{N}) \to \S^n$: Produce $n$ output bytes.
 - $\texttt{fork}() \to T$: Clone the transcript state.
 
-A concrete instantiation (`HashTranscript<SHA-512>`) is given in Appendix B.
+A concrete instantiation using SHA-512 is given in Appendix A.1.
 
 ### 1.6.2. VRF Input
 
-The VRF input point $I \in \G$ is derived from the input octet-string using the
-$\texttt{hash\_to\_curve}$ method defined in section 3 of [RFC-9380] [@RFC9380],
-instantiated with the *Elligator 2* map to curve (section 6.8.2) and
-$\texttt{expand\_message\_xmd}$ with SHA-512 (section 5.3.1).
+The VRF input point $I \in \G$ is derived from the input octet-string using
+a $\texttt{hash\_to\_curve}$ function that maps arbitrary-length octet-strings
+to points in $\G$.
 
-This is the random oracle (`_RO_`) construction: the input is hashed to two
-independent field elements, each is mapped to a curve point via Elligator 2,
-and the results are added.
+$$I \gets \texttt{hash\_to\_curve}(i)$$
 
-$$I \gets \texttt{hash\_to\_curve}(DST, i)$$
-
-The domain separation tag is:
-
-$$DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_id}$$
-
-where `h2c_suite_id` = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"` is the RFC-9380
-suite identifier string determined by the curve, hash, and h2c bytes of `suite_id`.
+The function MUST behave as a random oracle: its output must be
+indistinguishable from a uniformly random point in $\G$, and the discrete
+logarithm of the output with respect to any known base must be unknown.
 
 Verifiers MUST independently compute each $I_i$ from the corresponding input
 octet-string using the procedure above. Accepting prover-supplied input points
 without recomputation breaks the VRF security guarantees, and in the case of
 Thin VRF (section 3), enables trivial forgery.
+
+A concrete instantiation using Elligator 2 is given in Appendix A.2.
 
 ### 1.6.3. VRF Output
 
@@ -492,7 +486,7 @@ y &= 465448682068831493327822589387022161065982476834237270028856641115676082204
 \end{aligned}$$
 
 A point with unknown discrete logarithm derived using the `hash_to_curve` function
-as described in section 1.6.2 with input the string: `"pedersen-blinding"`.
+as described in Appendix A.2 with input the string: `"pedersen-blinding"`.
 
 ## 4.1. Prove
 
@@ -510,7 +504,7 @@ as described in section 1.6.2 with input the string: `"pedersen-blinding"`.
 **Steps**:
 
 1. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)$
-2. $b \gets \texttt{blinding}(x, T.\texttt{fork}())$ (see Appendix A.2)
+2. $b \gets \texttt{blinding}(x, T.\texttt{fork}())$ (see Appendix A.4)
 3. $\bar{Y} \gets x \cdot G + b \cdot B$
 4. $T_k \gets T.\texttt{fork}()$, $\quad T_k.\texttt{absorb}(\texttt{enc\_scalar}(b))$, $\quad k \gets \texttt{nonce}(x, T_k)$
 5. $T_{kb} \gets T.\texttt{fork}()$, $\quad T_{kb}.\texttt{absorb}(\texttt{enc\_scalar}(x))$, $\quad k_b \gets \texttt{nonce}(b, T_{kb})$
@@ -624,7 +618,7 @@ y &= 418989722593882020320555658407300044136536983297026306973173537219660906632
 \end{aligned}$$
 
 A point with unknown discrete logarithm derived using the `hash_to_curve` function
-as described in section 1.6.2 with input the string: `"ring-accumulator"`.
+as described in Appendix A.2 with input the string: `"ring-accumulator"`.
 
 - Padding point $\square \in \G$ is defined as:
 $$\footnotesize\begin{aligned}
@@ -633,7 +627,7 @@ y &= 217534114100846713465816502503223487788063572318084075624224011698202134234
 \end{aligned}$$
 
 A point with unknown discrete logarithm derived using the `hash_to_curve` function
-as described in section 1.6.2 with input the string: `"ring-padding"`.
+as described in Appendix A.2 with input the string: `"ring-padding"`.
 
 - Polynomials domain ($\langle \omega \rangle = \mathbb{D}$) generator:
 $$\footnotesize \omega = 49307615728544765012166121802278658070711169839041683575071795236746050763237$$
@@ -685,14 +679,62 @@ defined in [VG24] [@VG24].
 4. $\theta \gets \theta_0 \land \theta_1$
 
 
-# Appendix A. Recommendations
+# Appendix A. Concrete Instantiations
 
-## A.1. Deterministic Secret Key Scalar Generation
+The following are concrete instantiations of the abstract interfaces defined
+in the main specification. They are provided to enable interoperable
+implementations and reproducible test vectors. Alternative constructions
+that satisfy the same security requirements are equally valid.
 
-The following method derives a secret scalar from a 32-byte seed. It is
-provided primarily for test vector generation and is not mandated by the
-specification. Any secure method that produces uniformly distributed scalars
-in $\F$ is acceptable.
+## A.1. Transcript Construction
+
+Instantiation of the transcript interface (section 1.6.1) using SHA-512.
+
+**Initialization**: $\texttt{new\_transcript}()$ creates a fresh SHA-512 state and
+feeds $\texttt{suite\_id}$ into it.
+
+**Absorb**: feeds raw bytes directly into the SHA-512 state. Consecutive absorb
+calls are equivalent to a single absorb of the concatenated data. This is safe
+because all protocol fields use fixed-width encoding ($\texttt{enc\_point}$: 32
+bytes, $\texttt{enc\_scalar}$: 32 bytes, $\texttt{enc\_32}$: 4 bytes, domain
+tags: 1 byte) or explicit length prefixing ($ad$ via
+$\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad$), so the byte stream is
+unambiguous given the inputs agreed upon by both parties.
+
+**Squeeze** (counter-mode XOF): on the first squeeze call, finalize the SHA-512
+state to obtain a 64-byte $seed$. Then produce output blocks:
+
+$$block_i = \text{SHA-512}(seed \;\Vert\; \texttt{enc\_32}(i)) \quad \text{for } i = 0, 1, 2, \ldots$$
+
+Each block yields 64 bytes. Output is read sequentially across blocks; partial
+block state is preserved between squeeze calls.
+
+**Fork**: duplicates the full internal state (including any partial block position
+if squeezing has begun).
+
+## A.2. Hash to Curve
+
+Instantiation of the $\texttt{hash\_to\_curve}$ function (section 1.6.2)
+using the method defined in section 3 of [RFC-9380] [@RFC9380], with the
+*Elligator 2* map to curve (section 6.8.2) and
+$\texttt{expand\_message\_xmd}$ with SHA-512 (section 5.3.1).
+
+This is the random oracle (`_RO_`) construction: the input is hashed to two
+independent field elements, each is mapped to a curve point via Elligator 2,
+and the results are added.
+
+$$I \gets \texttt{hash\_to\_curve\_ell2}(DST, i)$$
+
+The domain separation tag is:
+
+$$DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_id}$$
+
+where `h2c_suite_id` = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"` is the RFC-9380
+suite identifier string determined by the curve, hash, and h2c bytes of `suite_id`.
+
+## A.3. Secret Key Generation
+
+Derives a secret scalar from a 32-byte seed.
 
 **Input**:
 
@@ -717,13 +759,11 @@ The seed is absorbed into the transcript and also passed as a scalar to the
 $\texttt{nonce}$ procedure (section 1.6.6), ensuring seed entropy flows through
 both the transcript state and the secret scalar input paths.
 
-## A.2. Deterministic Blinding Factor Generation
+## A.4. Blinding Factor Generation
 
-The following method generates the Pedersen VRF blinding factor deterministically
-from the secret key and the VRF transcript state, using the nonce function
-(section 1.6.6) with a distinct domain separator. It is provided primarily for
-test vector generation; implementations may use any method that produces a
-uniformly random scalar in $\F$.
+Generates the Pedersen VRF blinding factor deterministically from the secret
+key and the VRF transcript state, using the nonce function (section 1.6.6)
+with a distinct domain separator.
 
 **Linkability warning**: because $b$ is derived deterministically from $(x, T)$,
 two Pedersen VRF proofs with the same secret key, I/O pairs, and additional data
@@ -747,34 +787,7 @@ $b$ as a fresh uniformly random scalar rather than using this deterministic meth
 1. $T.\texttt{absorb}(\texttt{PedersenBlinding})$
 2. $b \gets \texttt{nonce}(x, T)$
 
-# Appendix B. HashTranscript Construction
-
-Concrete instantiation of the transcript interface (section 1.6.1) using SHA-512.
-
-**Initialization**: $\texttt{new\_transcript}()$ creates a fresh SHA-512 state and
-feeds $\texttt{suite\_id}$ into it.
-
-**Absorb**: feeds raw bytes directly into the SHA-512 state. Consecutive absorb
-calls are equivalent to a single absorb of the concatenated data. This is safe
-because all protocol fields use fixed-width encoding ($\texttt{enc\_point}$: 32
-bytes, $\texttt{enc\_scalar}$: 32 bytes, $\texttt{enc\_32}$: 4 bytes, domain
-tags: 1 byte) or explicit length prefixing ($ad$ via
-$\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad$), so the byte stream is
-unambiguous given the inputs agreed upon by both parties.
-
-**Squeeze** (counter-mode XOF): on the first squeeze call, finalize the SHA-512
-state to obtain a 64-byte $seed$. Then produce output blocks:
-
-$$block_i = \text{SHA-512}(seed \;\Vert\; \texttt{enc\_32}(i)) \quad \text{for } i = 0, 1, 2, \ldots$$
-
-Each block yields 64 bytes. Output is read sequentially across blocks; partial
-block state is preserved between squeeze calls.
-
-**Fork**: duplicates the full internal state (including any partial block position
-if squeezing has begun).
-
-
-# Appendix C. Behavior with Zero I/O Pairs
+# Appendix B. Behavior with Zero I/O Pairs
 
 When $n = 0$, the $\texttt{delinearize}$ procedure (section 1.6.4) sets the
 merged pair to the identity: $(I_m, O_m) = (\mathcal{O}, \mathcal{O})$. This
@@ -804,12 +817,12 @@ The per-scheme behavior is as follows:
 No VRF output can be derived when $n = 0$, since there are no output points
 to hash.
 
-# Appendix D. Test Vectors
+# Appendix C. Test Vectors
 
 The test vectors in this section were generated using `ark-vrf` libraries
 revision `c01eee3`.
 
-## D.1. IETF VRF Test Vectors
+## C.1. IETF VRF Test Vectors
 
 Schema:
 
@@ -923,7 +936,7 @@ b0928e26be7ac81ae06060736aeac044,
 93d20ab13c5a887ddef7d561bdbbd0d04abd37953c8508936b610b1ccd9b5d0a,
 ```
 
-## D.2. Thin VRF Test Vectors
+## C.2. Thin VRF Test Vectors
 
 ```
 sk (x): Secret key,
@@ -1035,7 +1048,7 @@ b234d14dd177bd490ac2c73f3c2ae69bc3c4189f18f6dfdeade33cd5c06b6d89,
 40e4e19eb70c38f95befc631ec7fc17c4854738826487a202843d54cbb138107,
 ```
 
-## D.3. Pedersen VRF Test Vectors
+## C.3. Pedersen VRF Test Vectors
 
 Schema:
 
@@ -1181,7 +1194,7 @@ c6919d3724f80a1533d61d4fccc4073fadc109939af4aa608883a8d9dda4fb17,
 a2c836e57a791ed9344c781393915158caaaee95fa897e906f7c5a310a44e31b,
 ```
 
-## D.4. Ring VRF Test Vectors
+## C.4. Ring VRF Test Vectors
 
 KZG SRS parameters are derived from Zcash BLS12-381 [powers of tau ceremony](https://zfnd.org/conclusion-of-the-powers-of-tau-ceremony).
 
