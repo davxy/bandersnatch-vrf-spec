@@ -217,28 +217,23 @@ prevents an attacker from mixing components across pairs.
 **Input**:
 
 - $\overline{io} \in (\G \times \G)^n$: Sequence of input/output pairs.
+- $T$: Transcript state.
 
 **Output**:
 
-- $T$: Transcript state.
 - $(I_m, O_m) \in \G \times \G$: Merged input/output pair.
 
 **Steps**:
 
-1. $T \gets \texttt{new\_transcript}()$
-2. For each $(I_i, O_i)$ in $\overline{io}$:
-   $T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))$
-3. If $n = 0$: return $(T, (\mathcal{O}, \mathcal{O}))$
-4. If $n = 1$: return $(T, (I_0, O_0))$
-5. $T' \gets T.\texttt{fork}(),\ T'.\texttt{absorb}(\texttt{Delinearize})$
-6. For $i = 0, \ldots, n-1$: $z_i \gets \texttt{dec\_scalar\_mod}(T'.\texttt{squeeze}(\texttt{challenge\_len}))$
-7. $I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i$
-8. Return $(T, (I_m, O_m))$
+1. $T.\texttt{absorb}(\texttt{Delinearize})$
+2. $z_0 \gets 1$
+3. For $i = 1, \ldots, n-1$: $z_i \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
+4. $I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i$
+5. Return $(I_m, O_m)$
 
-**Transcript**:
+**Transcript** (where $T_{in}$ is the caller-supplied state):
 
-- $T = \texttt{suite\_id} \;\Vert\; \texttt{enc\_point}(I_0) \;\Vert\; \texttt{enc\_point}(O_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(I_{n-1}) \;\Vert\; \texttt{enc\_point}(O_{n-1})$
-- $T' = T \;\Vert\; \texttt{Delinearize}$
+- $T = T_{in} \;\Vert\; \texttt{Delinearize}$
 
 ### 1.6.5. VRF Transcript
 
@@ -259,9 +254,23 @@ and absorbs additional data.
 
 **Steps**:
 
-1. $(T, (I_m, O_m)) \gets \texttt{delinearize}(\overline{io})$
-2. $T.\texttt{absorb}(scheme \;\Vert\; \texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)$
-3. Return $(T, (I_m, O_m))$
+1. $T \gets \texttt{new\_transcript}()$
+2. $T.\texttt{absorb}(scheme)$
+3. $T.\texttt{absorb}(\texttt{enc\_32}(n))$
+4. If $n = 0$: return $(T, (\mathcal{O}, \mathcal{O}))$
+5. For each $(I_i, O_i)$ in $\overline{io}$:
+   $T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))$
+6. $T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)$
+7. $(I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{fork}())$
+8. Return $(T, (I_m, O_m))$
+
+**Transcript**:
+
+$\begin{aligned}
+T = &\; \texttt{suite\_id} \;\Vert\; scheme \\
+  &\; \Vert\; \texttt{enc\_32}(n) \;\Vert\; \texttt{enc\_point}(I_0) \;\Vert\; \texttt{enc\_point}(O_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(I_{n-1}) \;\Vert\; \texttt{enc\_point}(O_{n-1}) \\
+  &\; \Vert\; \texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad
+\end{aligned}$
 
 ### 1.6.6. Nonce
 
@@ -308,8 +317,10 @@ squeezing.
 
 **Steps**:
 
-1. $T.\texttt{absorb}(\texttt{Challenge} \;\Vert\; \texttt{enc\_point}(P_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(P_{m-1}))$
-2. $c \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
+1. $T.\texttt{absorb}(\texttt{Challenge})$
+2. For each $P_i$ in $\bar{P}$:
+   $T.\texttt{absorb}(\texttt{enc\_point}(P_i))$
+3. $c \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
 
 **Transcript** (where $T_{in}$ is the caller-supplied state):
 
@@ -337,10 +348,10 @@ RFC-9381 implementations and test vectors.
 **Steps**:
 
 1. $Y \gets x \cdot G$
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, \overline{io}, ad)$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
 3. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
 4. $U \gets k \cdot G$, $\quad V \gets k \cdot I_m$
-5. $c \gets \texttt{challenge}([Y, U, V], T)$
+5. $c \gets \texttt{challenge}([U, V], T)$
 6. $s \gets k + c \cdot x$
 7. $\pi \gets (c, s)$
 
@@ -360,10 +371,10 @@ RFC-9381 implementations and test vectors.
 **Steps**:
 
 1. Validate $Y$ and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, \overline{io}, ad)$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
 3. $U \gets s \cdot G - c \cdot Y$
 4. $V \gets s \cdot I_m - c \cdot O_m$
-5. $c' \gets \texttt{challenge}([Y, U, V], T)$
+5. $c' \gets \texttt{challenge}([U, V], T)$
 6. $\theta \gets \top \text{ if } c = c' \text{ else } \bot$
 
 # 3. Thin VRF
@@ -460,7 +471,10 @@ lemma).
 
 **Transcript**:
 
-- $T_w = \texttt{suite\_id} \;\Vert\; \texttt{ThinBatch} \;\Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1})$
+$\begin{aligned}
+T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{ThinBatch} \\
+  &\; \Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1})
+\end{aligned}$
 
 
 # 4. Pedersen VRF
@@ -506,18 +520,13 @@ as described in Appendix A.2 with input the string: `"pedersen-blinding"`.
 1. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)$
 2. $b \gets \texttt{blinding}(x, T.\texttt{fork}())$ (see Appendix A.4)
 3. $\bar{Y} \gets x \cdot G + b \cdot B$
-4. $T_k \gets T.\texttt{fork}()$, $\quad T_k.\texttt{absorb}(\texttt{enc\_scalar}(b))$, $\quad k \gets \texttt{nonce}(x, T_k)$
-5. $T_{kb} \gets T.\texttt{fork}()$, $\quad T_{kb}.\texttt{absorb}(\texttt{enc\_scalar}(x))$, $\quad k_b \gets \texttt{nonce}(b, T_{kb})$
+4. $T.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}))$
+5. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$, $\quad k_b \gets \texttt{nonce}(b, T.\texttt{fork}())$
 6. $R \gets k \cdot G + k_b \cdot B$
 7. $O_k \gets k \cdot I_m$
-8. $c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)$
-9. $s \gets k + c \cdot x$
-10. $s_b \gets k_b + c \cdot b$
-11. $\pi \gets (\bar{Y}, R, O_k, s, s_b)$
-
-The nonce cross-binding is critical: $k$ is bound to $b$ (step 4) and $k_b$
-is bound to $x$ (step 5). This prevents secret/blinding recovery from two
-proofs with the same (secret, input, ad) but different blinding factors.
+8. $c \gets \texttt{challenge}([R, O_k], T)$
+9. $s \gets k + c \cdot x$, $\quad s_b \gets k_b + c \cdot b$
+10. $\pi \gets (\bar{Y}, R, O_k, s, s_b)$
 
 ## 4.2. Verify
 
@@ -535,10 +544,11 @@ proofs with the same (secret, input, ad) but different blinding factors.
 
 1. Validate $\bar{Y}$, $R$, $O_k$, and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
 2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)$
-3. $c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)$
-4. $\theta_0 \gets \top \text{ if } O_k + c \cdot O_m = s \cdot I_m \text{ else } \bot$
-5. $\theta_1 \gets \top \text{ if } R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B \text{ else } \bot$
-6. $\theta = \theta_0 \land \theta_1$
+3. $T.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}))$
+4. $c \gets \texttt{challenge}([R, O_k], T)$
+5. $\theta_0 \gets \top \text{ if } O_k + c \cdot O_m = s \cdot I_m \text{ else } \bot$
+6. $\theta_1 \gets \top \text{ if } R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B \text{ else } \bot$
+7. $\theta = \theta_0 \land \theta_1$
 
 Note: no public key appears in the verify inputs -- verification uses the
 committed key $\bar{Y}$ from the proof.
@@ -576,7 +586,8 @@ commitment correctness), each weighted by an independent random scalar.
 1. For each proof $j$:
    a. Validate $\bar{Y}_j$, $R_j$, $O_{k,j}$, and all $I_{j,i}, O_{j,i}$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
    b. $(T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}_j, ad_j)$
-   c. $c_j \gets \texttt{challenge}([\bar{Y}_j, R_j, O_{k,j}], T_j)$
+   c. $T_j.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}_j))$
+   d. $c_j \gets \texttt{challenge}([R_j, O_{k,j}], T_j)$
 
 2. Derive random weights:
    a. $T_w \gets \texttt{new\_transcript}()$
@@ -585,11 +596,18 @@ commitment correctness), each weighted by an independent random scalar.
 
 3. Check the combined equations:
    $$\sum_{j=0}^{N-1} t_j \cdot (O_{k,j} + c_j \cdot O_{m,j} - s_j \cdot I_{m,j}) + u_j \cdot (R_j + c_j \cdot \bar{Y}_j - s_j \cdot G - s_{b,j} \cdot B) = \mathcal{O}$$
-   where $buf_j \gets T_w.\texttt{squeeze}(32)$, $t_j \gets \texttt{dec\_scalar\_mod}(buf_j[0..16])$, $u_j \gets \texttt{dec\_scalar\_mod}(buf_j[16..32])$.
+   where:
+   - $t_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))$
+   - $u_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))$
 
 **Transcript**:
 
-- $T_w = \texttt{suite\_id} \;\Vert\; \texttt{PedersenBatch} \;\Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \texttt{enc\_scalar}(s_{b,0}) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{b,N-1})$
+$\begin{aligned}
+T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{PedersenBatch} \\
+  &\; \Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \texttt{enc\_scalar}(s_{b,0}) \\
+  &\; \Vert\; \cdots \\
+  &\; \Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{b,N-1})
+\end{aligned}$
 
 # 5. Ring VRF
 

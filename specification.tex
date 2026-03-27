@@ -423,14 +423,14 @@ pairs.
 \item
   \(\overline{io} \in (\bold{G}\times \bold{G})^n\): Sequence of
   input/output pairs.
+\item
+  \(T\): Transcript state.
 \end{itemize}
 
 \textbf{Output}:
 
 \begin{itemize}
 \tightlist
-\item
-  \(T\): Transcript state.
 \item
   \((I_m, O_m) \in \bold{G}\times \bold{G}\): Merged input/output pair.
 \end{itemize}
@@ -441,33 +441,24 @@ pairs.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(T \gets \texttt{new\_transcript}()\)
+  \(T.\texttt{absorb}(\texttt{Delinearize})\)
 \item
-  For each \((I_i, O_i)\) in \(\overline{io}\):
-  \(T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))\)
+  \(z_0 \gets 1\)
 \item
-  If \(n = 0\): return \((T, (\mathcal{O}, \mathcal{O}))\)
-\item
-  If \(n = 1\): return \((T, (I_0, O_0))\)
-\item
-  \(T' \gets T.\texttt{fork}(),\ T'.\texttt{absorb}(\texttt{Delinearize})\)
-\item
-  For \(i = 0, \ldots, n-1\):
-  \(z_i \gets \texttt{dec\_scalar\_mod}(T'.\texttt{squeeze}(\texttt{challenge\_len}))\)
+  For \(i = 1, \ldots, n-1\):
+  \(z_i \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))\)
 \item
   \(I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i\)
 \item
-  Return \((T, (I_m, O_m))\)
+  Return \((I_m, O_m)\)
 \end{enumerate}
 
-\textbf{Transcript}:
+\textbf{Transcript} (where \(T_{in}\) is the caller-supplied state):
 
 \begin{itemize}
 \tightlist
 \item
-  \(T = \texttt{suite\_id} \;\Vert\; \texttt{enc\_point}(I_0) \;\Vert\; \texttt{enc\_point}(O_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(I_{n-1}) \;\Vert\; \texttt{enc\_point}(O_{n-1})\)
-\item
-  \(T' = T \;\Vert\; \texttt{Delinearize}\)
+  \(T = T_{in} \;\Vert\; \texttt{Delinearize}\)
 \end{itemize}
 
 \subsubsection{1.6.5. VRF Transcript}\label{vrf-transcript}
@@ -505,12 +496,31 @@ absorbs additional data.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \((T, (I_m, O_m)) \gets \texttt{delinearize}(\overline{io})\)
+  \(T \gets \texttt{new\_transcript}()\)
 \item
-  \(T.\texttt{absorb}(scheme \;\Vert\; \texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)\)
+  \(T.\texttt{absorb}(scheme)\)
+\item
+  \(T.\texttt{absorb}(\texttt{enc\_32}(n))\)
+\item
+  If \(n = 0\): return \((T, (\mathcal{O}, \mathcal{O}))\)
+\item
+  For each \((I_i, O_i)\) in \(\overline{io}\):
+  \(T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))\)
+\item
+  \(T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)\)
+\item
+  \((I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{fork}())\)
 \item
   Return \((T, (I_m, O_m))\)
 \end{enumerate}
+
+\textbf{Transcript}:
+
+\(\begin{aligned}
+T = &\; \texttt{suite\_id} \;\Vert\; scheme \\
+  &\; \Vert\; \texttt{enc\_32}(n) \;\Vert\; \texttt{enc\_point}(I_0) \;\Vert\; \texttt{enc\_point}(O_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(I_{n-1}) \;\Vert\; \texttt{enc\_point}(O_{n-1}) \\
+  &\; \Vert\; \texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad
+\end{aligned}\)
 
 \subsubsection{1.6.6. Nonce}\label{nonce}
 
@@ -595,7 +605,10 @@ and squeezing.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(T.\texttt{absorb}(\texttt{Challenge} \;\Vert\; \texttt{enc\_point}(P_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(P_{m-1}))\)
+  \(T.\texttt{absorb}(\texttt{Challenge})\)
+\item
+  For each \(P_i\) in \(\bar{P}\):
+  \(T.\texttt{absorb}(\texttt{enc\_point}(P_i))\)
 \item
   \(c \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))\)
 \end{enumerate}
@@ -647,13 +660,13 @@ standard RFC-9381 implementations and test vectors.
 \item
   \(Y \gets x \cdot G\)
 \item
-  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, \overline{io}, ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)\)
 \item
   \(k \gets \texttt{nonce}(x, T.\texttt{fork}())\)
 \item
   \(U \gets k \cdot G\), \(\quad V \gets k \cdot I_m\)
 \item
-  \(c \gets \texttt{challenge}([Y, U, V], T)\)
+  \(c \gets \texttt{challenge}([U, V], T)\)
 \item
   \(s \gets k + c \cdot x\)
 \item
@@ -696,13 +709,13 @@ standard RFC-9381 implementations and test vectors.
   \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if any is
   invalid or the identity.
 \item
-  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, \overline{io}, ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)\)
 \item
   \(U \gets s \cdot G - c \cdot Y\)
 \item
   \(V \gets s \cdot I_m - c \cdot O_m\)
 \item
-  \(c' \gets \texttt{challenge}([Y, U, V], T)\)
+  \(c' \gets \texttt{challenge}([U, V], T)\)
 \item
   \(\theta \gets \top \text{ if } c = c' \text{ else } \bot\)
 \end{enumerate}
@@ -892,11 +905,10 @@ lemma).
 
 \textbf{Transcript}:
 
-\begin{itemize}
-\tightlist
-\item
-  \(T_w = \texttt{suite\_id} \;\Vert\; \texttt{ThinBatch} \;\Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1})\)
-\end{itemize}
+\(\begin{aligned}
+T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{ThinBatch} \\
+  &\; \Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1})
+\end{aligned}\)
 
 \section{4. Pedersen VRF}\label{pedersen-vrf}
 
@@ -963,31 +975,21 @@ input the string: \texttt{"pedersen-blinding"}.
 \item
   \(\bar{Y} \gets x \cdot G + b \cdot B\)
 \item
-  \(T_k \gets T.\texttt{fork}()\),
-  \(\quad T_k.\texttt{absorb}(\texttt{enc\_scalar}(b))\),
-  \(\quad k \gets \texttt{nonce}(x, T_k)\)
+  \(T.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}))\)
 \item
-  \(T_{kb} \gets T.\texttt{fork}()\),
-  \(\quad T_{kb}.\texttt{absorb}(\texttt{enc\_scalar}(x))\),
-  \(\quad k_b \gets \texttt{nonce}(b, T_{kb})\)
+  \(k \gets \texttt{nonce}(x, T.\texttt{fork}())\),
+  \(\quad k_b \gets \texttt{nonce}(b, T.\texttt{fork}())\)
 \item
   \(R \gets k \cdot G + k_b \cdot B\)
 \item
   \(O_k \gets k \cdot I_m\)
 \item
-  \(c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)\)
+  \(c \gets \texttt{challenge}([R, O_k], T)\)
 \item
-  \(s \gets k + c \cdot x\)
-\item
-  \(s_b \gets k_b + c \cdot b\)
+  \(s \gets k + c \cdot x\), \(\quad s_b \gets k_b + c \cdot b\)
 \item
   \(\pi \gets (\bar{Y}, R, O_k, s, s_b)\)
 \end{enumerate}
-
-The nonce cross-binding is critical: \(k\) is bound to \(b\) (step 4)
-and \(k_b\) is bound to \(x\) (step 5). This prevents secret/blinding
-recovery from two proofs with the same (secret, input, ad) but different
-blinding factors.
 
 \subsection{4.2. Verify}\label{verify-2}
 
@@ -1026,7 +1028,9 @@ blinding factors.
 \item
   \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)\)
 \item
-  \(c \gets \texttt{challenge}([\bar{Y}, R, O_k], T)\)
+  \(T.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}))\)
+\item
+  \(c \gets \texttt{challenge}([R, O_k], T)\)
 \item
   \(\theta_0 \gets \top \text{ if } O_k + c \cdot O_m = s \cdot I_m \text{ else } \bot\)
 \item
@@ -1104,7 +1108,9 @@ scalar.
   \item
     \((T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}_j, ad_j)\)
   \item
-    \(c_j \gets \texttt{challenge}([\bar{Y}_j, R_j, O_{k,j}], T_j)\)
+    \(T_j.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}_j))\)
+  \item
+    \(c_j \gets \texttt{challenge}([R_j, O_{k,j}], T_j)\)
   \end{enumerate}
 \item
   Derive random weights:
@@ -1123,18 +1129,25 @@ scalar.
 \item
   Check the combined equations:
   \[\sum_{j=0}^{N-1} t_j \cdot (O_{k,j} + c_j \cdot O_{m,j} - s_j \cdot I_{m,j}) + u_j \cdot (R_j + c_j \cdot \bar{Y}_j - s_j \cdot G - s_{b,j} \cdot B) = \mathcal{O}\]
-  where \(buf_j \gets T_w.\texttt{squeeze}(32)\),
-  \(t_j \gets \texttt{dec\_scalar\_mod}(buf_j[0..16])\),
-  \(u_j \gets \texttt{dec\_scalar\_mod}(buf_j[16..32])\).
+  where:
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \(t_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))\)
+  \item
+    \(u_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))\)
+  \end{itemize}
 \end{enumerate}
 
 \textbf{Transcript}:
 
-\begin{itemize}
-\tightlist
-\item
-  \(T_w = \texttt{suite\_id} \;\Vert\; \texttt{PedersenBatch} \;\Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \texttt{enc\_scalar}(s_{b,0}) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{b,N-1})\)
-\end{itemize}
+\(\begin{aligned}
+T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{PedersenBatch} \\
+  &\; \Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \texttt{enc\_scalar}(s_{b,0}) \\
+  &\; \Vert\; \cdots \\
+  &\; \Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{b,N-1})
+\end{aligned}\)
 
 \section{5. Ring VRF}\label{ring-vrf}
 
