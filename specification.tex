@@ -411,10 +411,11 @@ evaluation.
 
 \subsubsection{1.6.4. Delinearization}\label{delinearization}
 
-When multiple input/output pairs are provided (\(n \geq 2\)), they are
-merged into a single pair using delinearization scalars derived from the
-transcript. This prevents an attacker from mixing components across
-pairs.
+Merges input/output pairs into a single pair using delinearization
+scalars derived from the transcript. For \(n = 0\), returns the identity
+pair. For \(n = 1\), the pair is returned unchanged (\(z_0 = 1\)). For
+\(n \geq 2\), random scalars prevent an attacker from mixing components
+across pairs.
 
 \textbf{Input}:
 
@@ -440,6 +441,8 @@ pairs.
 \begin{enumerate}
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
+\item
+  If \(n = 0\): return \((\mathcal{O}, \mathcal{O})\)
 \item
   \(T.\texttt{absorb}(\texttt{Delinearize})\)
 \item
@@ -501,8 +504,6 @@ absorbs additional data.
   \(T.\texttt{absorb}(scheme)\)
 \item
   \(T.\texttt{absorb}(\texttt{enc\_32}(n))\)
-\item
-  If \(n = 0\): return \((T, (\mathcal{O}, \mathcal{O}))\)
 \item
   For each \((I_i, O_i)\) in \(\overline{io}\):
   \(T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))\)

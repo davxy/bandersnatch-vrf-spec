@@ -210,9 +210,10 @@ obtain consistent output hashes across schemes for the same underlying evaluatio
 
 ### 1.6.4. Delinearization
 
-When multiple input/output pairs are provided ($n \geq 2$), they are merged into
-a single pair using delinearization scalars derived from the transcript. This
-prevents an attacker from mixing components across pairs.
+Merges input/output pairs into a single pair using delinearization scalars
+derived from the transcript. For $n = 0$, returns the identity pair.
+For $n = 1$, the pair is returned unchanged ($z_0 = 1$). For $n \geq 2$,
+random scalars prevent an attacker from mixing components across pairs.
 
 **Input**:
 
@@ -225,11 +226,12 @@ prevents an attacker from mixing components across pairs.
 
 **Steps**:
 
-1. $T.\texttt{absorb}(\texttt{Delinearize})$
-2. $z_0 \gets 1$
-3. For $i = 1, \ldots, n-1$: $z_i \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
-4. $I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i$
-5. Return $(I_m, O_m)$
+1. If $n = 0$: return $(\mathcal{O}, \mathcal{O})$
+2. $T.\texttt{absorb}(\texttt{Delinearize})$
+3. $z_0 \gets 1$
+4. For $i = 1, \ldots, n-1$: $z_i \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))$
+5. $I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i$
+6. Return $(I_m, O_m)$
 
 **Transcript** (where $T_{in}$ is the caller-supplied state):
 
@@ -257,12 +259,11 @@ and absorbs additional data.
 1. $T \gets \texttt{new\_transcript}()$
 2. $T.\texttt{absorb}(scheme)$
 3. $T.\texttt{absorb}(\texttt{enc\_32}(n))$
-4. If $n = 0$: return $(T, (\mathcal{O}, \mathcal{O}))$
-5. For each $(I_i, O_i)$ in $\overline{io}$:
+4. For each $(I_i, O_i)$ in $\overline{io}$:
    $T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))$
-6. $T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)$
-7. $(I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{fork}())$
-8. Return $(T, (I_m, O_m))$
+5. $T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)$
+6. $(I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{fork}())$
+7. Return $(T, (I_m, O_m))$
 
 **Transcript**:
 
