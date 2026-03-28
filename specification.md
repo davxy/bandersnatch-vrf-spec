@@ -3,7 +3,7 @@ title: Bandersnatch VRF-AD Specification
 author:
   - Davide Galassi
   - Seyed Hosseini
-date: 24 Mar 2026 - Draft 31
+date: 27 Mar 2026 - Draft 31
 ---
 
 \newcommand{\G}{\bold{G}}
@@ -17,7 +17,7 @@ date: 24 Mar 2026 - Draft 31
 This specification defines three Verifiable Random Function with Additional Data
 (VRF-AD) schemes -- IETF VRF, Thin VRF, and Pedersen VRF -- built on a
 transcript-based Fiat-Shamir transform with support for multiple input/output
-pairs via delinearization. The IETF VRF extends [RFC-9381] [@RFC9381]; the Thin
+pairs via delinearization. The IETF VRF is based on [RFC-9381] [@RFC9381]; the Thin
 VRF and Pedersen VRF follow the constructions introduced by [BCHSV23] [@BCHSV23],
 with the Pedersen VRF serving as a building block for anonymized ring signatures
 as described in [VG24] [@VG24]. All schemes are instantiated over the
@@ -103,17 +103,17 @@ Domain separation tags used throughout the protocol:
 
 | Tag | Value | Usage |
 |-----|-------|-------|
-| Challenge | 0x01 | Challenge derivation |
-| NonceExpand | 0x02 | Nonce secret expansion |
-| Nonce | 0x03 | Nonce derivation |
-| PointToHash | 0x04 | VRF output hashing |
-| Delinearize | 0x05 | Delinearization scalars |
-| PedersenBlinding | 0x80 | Pedersen blinding factor |
-| ThinBatch | 0x81 | Thin VRF batch verification |
-| PedersenBatch | 0x82 | Pedersen VRF batch verification |
-| IetfVrf | 0x10 | IETF VRF scheme identifier |
-| ThinVrf | 0x11 | Thin VRF scheme identifier |
-| PedersenVrf | 0x12 | Pedersen VRF scheme identifier |
+| IetfVrf | 0x00 | IETF VRF scheme identifier |
+| ThinVrf | 0x01 | Thin VRF scheme identifier |
+| PedersenVrf | 0x02 | Pedersen VRF scheme identifier |
+| NonceExpand | 0x10 | Nonce secret expansion |
+| Nonce | 0x11 | Nonce derivation |
+| PedersenBlinding | 0x12 | Pedersen blinding factor |
+| PointToHash | 0x20 | VRF output hashing |
+| Delinearize | 0x30 | Delinearization scalars |
+| Challenge | 0x40 | Challenge derivation |
+| ThinBatch | 0x50 | Thin VRF batch verification |
+| PedersenBatch | 0x51 | Pedersen VRF batch verification |
 
 ## 1.5. Codec
 
@@ -329,7 +329,7 @@ squeezing.
 
 # 2. IETF VRF
 
-Based on IETF [RFC-9381] which is extended with a transcript-based Fiat-Shamir
+Based on IETF [RFC-9381] but adapted with a transcript-based Fiat-Shamir
 transform, support for additional data ($ad$), and multiple I/O pairs via
 delinearization. These changes make this scheme incompatible with standard
 RFC-9381 implementations and test vectors.
@@ -808,33 +808,23 @@ $b$ as a fresh uniformly random scalar rather than using this deterministic meth
 
 # Appendix B. Behavior with Zero I/O Pairs
 
-When $n = 0$, the $\texttt{delinearize}$ procedure (section 1.6.4) sets the
-merged pair to the identity: $(I_m, O_m) = (\mathcal{O}, \mathcal{O})$. This
-causes the VRF-specific verification checks to become trivially satisfied, since
-any scalar multiplication with $\mathcal{O}$ yields $\mathcal{O}$. The
-Schnorr proof-of-knowledge component, however, remains sound: a valid proof
-still requires knowledge of the secret key $x$.
+When $n = 0$ no VRF output can be derived, since there are no output points
+to hash. The proof-of-knowledge component, however, remains sound in all
+schemes: a valid proof still requires knowledge of the secret key $x$.
 
-The per-scheme behavior is as follows:
+- **IETF VRF and Thin VRF**: Both schemes prepend the Schnorr pair $(G, Y)$
+  to the I/O list before delinearization (sections 2.1 and 3.1, step 2),
+  so the internal pair count is at least 1 regardless of the user-supplied $n$.
+  With zero VRF pairs, the scheme degenerates to a Schnorr signature on the
+  additional data $ad$, proving knowledge of $x$ for public key $Y$.
 
-- **IETF VRF**: The verifier computes $U = s \cdot G - c \cdot Y$ (non-trivial)
-  and $V = s \cdot \mathcal{O} - c \cdot \mathcal{O} = \mathcal{O}$ (vacuous).
-  The scheme degenerates to a Schnorr signature on the additional data $ad$,
-  proving knowledge of $x$ for public key $Y$.
-
-- **Thin VRF**: The Schnorr pair $(G, Y)$ is always prepended (section 3.1,
-  step 2), so the internal pair count is at least 1 regardless of the
-  user-supplied $n$. The scheme remains a well-formed Schnorr proof even with
-  zero VRF pairs.
-
-- **Pedersen VRF**: The VRF output check
-  $O_k + c \cdot O_m = s \cdot I_m$ is vacuously satisfied
+- **Pedersen VRF**: No Schnorr pair is prepended, so with $n = 0$ the
+  $\texttt{delinearize}$ procedure (section 1.6.4) sets the merged pair to
+  the identity: $(I_m, O_m) = (\mathcal{O}, \mathcal{O})$. The VRF output
+  check $O_k + c \cdot O_m = s \cdot I_m$ is vacuously satisfied
   ($\mathcal{O} = \mathcal{O}$), but the commitment check
   $R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B$ still proves knowledge
   of the Pedersen commitment opening $(x, b)$.
-
-No VRF output can be derived when $n = 0$, since there are no output points
-to hash.
 
 # Appendix C. Test Vectors
 
