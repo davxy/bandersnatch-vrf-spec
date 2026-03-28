@@ -2,7 +2,7 @@ use ark_vrf::reexports::{
     ark_ec::AffineRepr,
     ark_serialize::{self, CanonicalDeserialize, CanonicalSerialize},
 };
-use ark_vrf::{pedersen::PedersenSuite, ring::RingSuite, suites::bandersnatch};
+use ark_vrf::{pedersen::PedersenSuite, ring::RingSuite, suites::bandersnatch, VrfIo};
 use bandersnatch::{
     AffinePoint, BandersnatchSha512Ell2, IetfProof, Input, Output, Public, RingProof,
     RingProofParams, Secret,
@@ -45,6 +45,12 @@ fn ring_proof_params() -> &'static RingProofParams {
     })
 }
 
+fn seed_from_index(idx: usize) -> [u8; 32] {
+    let mut seed = [0u8; 32];
+    seed[..8].copy_from_slice(&idx.to_le_bytes());
+    seed
+}
+
 // Construct VRF Input Point from arbitrary data (section 1.2)
 fn vrf_input_point(vrf_input_data: &[u8]) -> Input {
     Input::new(vrf_input_data).unwrap()
@@ -61,16 +67,16 @@ impl Prover {
     pub fn new(ring: Vec<Public>, prover_idx: usize) -> Self {
         Self {
             prover_idx,
-            secret: Secret::from_seed(&prover_idx.to_le_bytes()),
+            secret: Secret::from_seed(seed_from_index(prover_idx)),
             ring,
         }
     }
 
     /// VRF output hash.
-    pub fn vrf_output(&self, vrf_input_data: &[u8]) -> Vec<u8> {
+    pub fn vrf_output(&self, vrf_input_data: &[u8]) -> [u8; 32] {
         let input = vrf_input_point(vrf_input_data);
         let output = self.secret.output(input);
-        output.hash()[..32].try_into().unwrap()
+        output.hash::<32>()
     }
 
     /// Anonymous VRF signature.
@@ -87,9 +93,10 @@ impl Prover {
 
         // Proof construction
         let params = ring_proof_params();
-        let prover_key = params.prover_key(&pts);
+        let prover_key = params.prover_key(&pts).unwrap();
         let prover = params.prover(prover_key, self.prover_idx);
-        let proof = self.secret.prove(input, output, aux_data, &prover);
+        let io = VrfIo { input, output };
+        let proof = self.secret.prove(io, aux_data, &prover);
 
         // Output and Ring Proof bundled together (as per section 2.2)
         let signature = RingVrfSignature { output, proof };
@@ -108,7 +115,8 @@ impl Prover {
         let input = vrf_input_point(vrf_input_data);
         let output = self.secret.output(input);
 
-        let proof = self.secret.prove(input, output, aux_data);
+        let io = VrfIo { input, output };
+        let proof = self.secret.prove(io, aux_data);
 
         // Output and IETF Proof bundled together (as per section 2.2)
         let signature = IetfVrfSignature { output, proof };
@@ -130,7 +138,7 @@ impl Verifier {
     fn new(ring: Vec<Public>) -> Self {
         // Backend currently requires the wrapped type (plain affine points)
         let pts: Vec<_> = ring.iter().map(|pk| pk.0).collect();
-        let verifier_key = ring_proof_params().verifier_key(&pts);
+        let verifier_key = ring_proof_params().verifier_key(&pts).unwrap();
         let commitment = verifier_key.commitment();
         Self { ring, commitment }
     }
@@ -162,14 +170,15 @@ impl Verifier {
         // In other words, we prefer computing the commitment once, when the keyset changes.
         let verifier_key = params.verifier_key_from_commitment(self.commitment.clone());
         let verifier = params.verifier(verifier_key);
-        if Public::verify(input, output, aux_data, &signature.proof, &verifier).is_err() {
+        let io = VrfIo { input, output };
+        if Public::verify(io, aux_data, &signature.proof, &verifier).is_err() {
             println!("Ring signature verification failure");
             return Err(());
         }
         println!("Ring signature verified");
 
         // This truncated hash is the actual value used as ticket-id/score in JAM
-        let vrf_output_hash: [u8; 32] = output.hash()[..32].try_into().unwrap();
+        let vrf_output_hash: [u8; 32] = output.hash::<32>();
         println!(" vrf-output-hash: {}", hex::encode(vrf_output_hash));
         Ok(vrf_output_hash)
     }
@@ -195,10 +204,8 @@ impl Verifier {
         let output = signature.output;
 
         let public = &self.ring[signer_key_index];
-        if public
-            .verify(input, output, aux_data, &signature.proof)
-            .is_err()
-        {
+        let io = VrfIo { input, output };
+        if public.verify(io, aux_data, &signature.proof).is_err() {
             println!("Ring signature verification failure");
             return Err(());
         }
@@ -207,7 +214,7 @@ impl Verifier {
         // This is the actual value used as ticket-id/score
         // NOTE: as far as vrf_input_data is the same, this matches the one produced
         // using the ring-vrf (regardless of aux_data).
-        let vrf_output_hash: [u8; 32] = output.hash()[..32].try_into().unwrap();
+        let vrf_output_hash: [u8; 32] = output.hash::<32>();
         println!(" vrf-output-hash: {}", hex::encode(vrf_output_hash));
         Ok(vrf_output_hash)
     }
@@ -237,8 +244,8 @@ fn print_points() {
     println!("==============================");
     print_point("Group Base", AffinePoint::generator());
     print_point("Blinding Base", BandersnatchSha512Ell2::BLINDING_BASE);
-    print_point("Ring Padding", BandersnatchSha512Ell2::PADDING);
     print_point("Accumulator Base", BandersnatchSha512Ell2::ACCUMULATOR_BASE);
+    print_point("Ring Padding", BandersnatchSha512Ell2::PADDING);
     println!("==============================");
 }
 
@@ -246,12 +253,12 @@ fn main() {
     print_points();
 
     let mut ring: Vec<_> = (0..RING_SIZE)
-        .map(|i| Secret::from_seed(&i.to_le_bytes()).public())
+        .map(|i| Secret::from_seed(seed_from_index(i)).public())
         .collect();
     let prover_key_index = 3;
 
     // NOTE: any key can be replaced with the padding point
-    let padding_point = Public::from_affine(RingProofParams::padding_point());
+    let padding_point = Public::from_affine(RingProofParams::padding_point()).unwrap();
     ring[2] = padding_point;
     ring[7] = padding_point;
 

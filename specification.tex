@@ -36,6 +36,16 @@
   \KOMAoptions{parskip=half}}
 \makeatother
 \usepackage{xcolor}
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
 \setlength{\emergencystretch}{3em} % prevent overfull lines
 \providecommand{\tightlist}{%
   \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
@@ -87,7 +97,7 @@
 
 \title{Bandersnatch VRF-AD Specification}
 \author{Davide Galassi \and Seyed Hosseini}
-\date{26 Feb 2026 - Draft 29}
+\date{28 Mar 2026 - Draft 32}
 
 \begin{document}
 \maketitle
@@ -100,37 +110,54 @@
 
 \section{\texorpdfstring{\emph{Abstract}}{Abstract}}\label{abstract}
 
-This specification delineates the framework for a Verifiable Random
-Function with Additional Data (VRF-AD), a cryptographic construct that
-augments a standard VRF by incorporating auxiliary information into its
-signature. We're going to first provide a specification to extend IETF's
-ECVRF as outlined in
-\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]}, then
-we describe a variant of the Pedersen VRF originally introduced by
-\href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]}, which serves
-as a fundamental component for implementing anonymized ring signatures
-as further elaborated by
-\href{https://github.com/davxy/ring-proof-spec}{VG24} {[}3{]}. This
-specification provides detailed insights into the usage of these
-primitives with Bandersnatch, an elliptic curve constructed over the
-BLS12-381 scalar field specified in
+This specification defines three Verifiable Random Function with
+Additional Data (VRF-AD) schemes -- IETF VRF, Thin VRF, and Pedersen VRF
+-- built on a transcript-based Fiat-Shamir transform with support for
+multiple input/output pairs via delinearization. The IETF VRF is based
+on \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]};
+the Thin VRF and Pedersen VRF follow the constructions introduced by
+\href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]}, with the
+Pedersen VRF serving as a building block for anonymized ring signatures
+based on the ring proof scheme derived from
+\href{https://eprint.iacr.org/2022/1205}{CSSV22} {[}3{]}. All schemes
+are instantiated over the Bandersnatch elliptic curve, constructed over
+the BLS12-381 scalar field as specified in
 \href{https://eprint.iacr.org/2021/1152}{MSZ21} {[}4{]}.
 
 \section{1. Preliminaries}\label{preliminaries}
 
-\subsection{1.1. Common definitions}\label{common-definitions}
+\subsection{1.1. Groups and Fields}\label{groups-and-fields}
 
 \begin{itemize}
+\tightlist
 \item
-  \(\bold{G}\): Bandersnatch curve cyclic group of prime order \(r\).
+  \(\bold{G}\): Bandersnatch curve cyclic group of prime order \(r\),
+  defined over the base field of prime order \(q\).
 \item
   \(\bold{F}\): Scalar field of prime order \(r\)
   (i.e.~\(\mathbb{Z}_r\)).
 \item
-  \(\bold{\Sigma}^k\): Octets strings with length \(k \in \mathbb{N}\)
+  \(\bold{\Sigma}^k\): Octet strings with length \(k \in \mathbb{N}\)
   (\(*\) for arbitrary length).
 \item
-  \(G \in \bold{G}\): Prime order group generator.
+  \(\mathcal{O}\): Identity point of \(\bold{G}\).
+\end{itemize}
+
+The EC group \(\bold{G}\) is the prime subgroup of the Bandersnatch
+elliptic curve, in Twisted Edwards form, with finite field and curve
+parameters as specified in
+\href{https://eprint.iacr.org/2021/1152}{MSZ21} {[}4{]}. For this group,
+\texttt{fLen} = \texttt{qLen} = \(32\) and \texttt{cofactor} = \(4\).
+
+All point arithmetic MUST be performed in \(\bold{G}\). Points not in
+\(\bold{G}\) MUST be rejected at all entry points; accepting a point on
+the full curve but outside the prime-order subgroup enables
+small-subgroup attacks that break the VRF relation.
+
+\subsection{1.2. Notation}\label{notation}
+
+\begin{itemize}
+\tightlist
 \item
   \(x \in \bold{F}\): Secret key scalar.
 \item
@@ -143,102 +170,374 @@ BLS12-381 scalar field specified in
   \(O \in \bold{G}\): VRF output point.
 \item
   \(o \in \bold{\Sigma}^k\): VRF output hash.
+\item
+  \(T\): Transcript state.
 \end{itemize}
 
-\subsection{1.2. Secret Key Generation}\label{secret-key-generation}
+The \emph{group generator} \(G \in \bold{G}\) is defined as:
+\[\footnotesize\begin{aligned}
+x &= 18886178867200960497001835917649091219057080094937609519140440539760939937304 \\
+y &= 19188667384257783945677642223292697773471335439753913231509108946878080696678
+\end{aligned}\]
 
-Implementations should provide a method for deterministic secret
-generation from seeds. One RECOMMENDED method is described in Section A.
-However, any secure method that outputs uniformly random scalars in
-\(\bold{F}\)\hspace{0pt} is acceptable.
-
-\subsection{1.3. VRF Input}\label{vrf-input}
-
-An arbitrary length octet-string provided by the user to generate some
-unbiasable verifiable random output.
-
-\subsection{1.4. VRF Input Point}\label{vrf-input-point}
-
-A point in \(\bold{G}\) generated from VRF input octet-string using the
-\emph{Elligator 2} \emph{hash-to-curve} algorithm as described by
-section 6.8.2 of
-\href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380} {[}5{]}.
-
-\[I \gets \texttt{hash\_to\_curve}(i)\]
-
-\subsection{1.5. VRF Output Point}\label{vrf-output-point}
-
-A point generated from VRF input point and secret key scalar.
-
-\[O \gets x \cdot I\]
-
-\subsection{1.6. VRF Output}\label{vrf-output}
-
-A fixed-length octet string produced from the VRF output point using the
-\emph{output-to-hash} procedure, which is \emph{proof-to-hash} method
-described in Section 5.2 of
-\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}, but with a
-specific focus on the output point component (referred to as \(Gamma\)
-in \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}) extracted
-from the output point proof bundle.
-
-\[o \gets \texttt{output\_to\_hash}(O)\]
-
-\subsection{1.7 Additional Data}\label{additional-data}
-
-An arbitrary length octet-string provided by the user to be signed
-together with the generated VRF output. This data doesn't influence the
-produced VRF output.
-
-\subsection{1.8. VRF-AD}\label{vrf-ad}
+\subsection{1.3. VRF-AD}\label{vrf-ad}
 
 Regardless of the specific scheme, a \emph{Verifiable Random Function
 with Additional Data (VRF-AD)} can be concisely represented by three
 primary functions:
 
-\begin{itemize}
-\tightlist
-\item
-  \(prove(x, i, ad) \mapsto \Pi\)
-\item
-  \(verify(y, i, ad, \Pi) \mapsto (\top \mid \bot)\)
-\item
-  \(output(\Pi) \mapsto o\)
-\end{itemize}
-
-Here:
+\textbf{Abstract interface}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(y \gets \texttt{serialize\_compressed}(Y)\), where \(Y\) is the
-  public key corresponding to the private key used for proving.
+  \(\texttt{prove}(x \in \bold{F}, \overline{io} \in (\bold{G}\times \bold{G})^n, ad \in \bold{\Sigma}^*) \to \Pi\)
 \item
-  \(\Pi \gets \texttt{encode\_compressed}((O, \pi))\), where \(\pi\) is
-  the proof specific to the underlying scheme, and \(O\) represents the
-  VRF output point.
+  \(\texttt{verify}(Y \in \bold{G}, \overline{io} \in (\bold{G}\times \bold{G})^n, ad \in \bold{\Sigma}^*, \Pi) \to (\top \mid \bot)\)
+\item
+  \(\texttt{output}(O \in \bold{G}) \to o \in \bold{\Sigma}^N\)
 \end{itemize}
 
-\subsection{1.9. Nonce Procedure}\label{nonce-procedure}
+For Pedersen VRF (section 4), the public key \(Y\) is not an explicit
+input to \(\texttt{verify}\); the proof \(\Pi\) carries a blinded
+commitment \(\bar{Y}\) instead.
 
-Nonce generation extends the \texttt{ECVRF\_nonce\_generation} procedure
-from section 5.4.2.2 of
-\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]} to
-incorporate additional context, ensuring the nonce varies with all
-inputs to the prove function. This prevents nonce reuse when the same
-secret key and VRF input are signed with different additional data or,
-in the Pedersen VRF case, different blinding factors.
+The additional data \(ad\) is an arbitrary-length octet-string signed
+together with the VRF output. It does not influence the produced VRF
+output. The length of \(ad\) MUST NOT exceed \(2^{32} - 1\) bytes, as
+the length is encoded via \(\texttt{enc\_32}\) in the VRF transcript
+(section 1.6.5).
+
+\subsection{1.4. Constants}\label{constants}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{suite\_id} = \texttt{{[}0x01,\ 0x01,\ 0x01,\ 0x01{]}} --- a
+  4-byte fixed-width identifier encoding the protocol profile:
+\end{itemize}
+
+\begin{longtable}[]{@{}llll@{}}
+\toprule\noalign{}
+Name & Byte & Value & Meaning \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+version & 0 & 0x01 & Suite version (v1) \\
+curve & 1 & 0x01 & Bandersnatch \\
+hash & 2 & 0x01 & SHA-512 \\
+h2c & 3 & 0x01 & Elligator 2, random oracle \\
+\end{longtable}
+
+The version byte bundles several tightly-coupled choices: transcript
+construction (HashTranscript), nonce algorithm (RFC-8032), challenge
+derivation (transcript squeeze), point encoding (compressed
+little-endian), and security level (128-bit). Bump this byte when any of
+these changes.
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{challenge\_len} = 16 bytes (128-bit security).
+\item
+  \texttt{expanded\_scalar\_len} =
+  \(\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil\) = 48 bytes.
+\end{itemize}
+
+Domain separation tags used throughout the protocol:
+
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Tag & Value & Usage \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+IetfVrf & 0x00 & IETF VRF scheme identifier \\
+ThinVrf & 0x01 & Thin VRF scheme identifier \\
+PedersenVrf & 0x02 & Pedersen VRF scheme identifier \\
+NonceExpand & 0x10 & Nonce secret expansion \\
+Nonce & 0x11 & Nonce derivation \\
+PedersenBlinding & 0x12 & Pedersen blinding factor \\
+PointToHash & 0x20 & VRF output hashing \\
+Delinearize & 0x30 & Delinearization scalars \\
+Challenge & 0x40 & Challenge derivation \\
+ThinBatch & 0x50 & Thin VRF batch verification \\
+PedersenBatch & 0x51 & Pedersen VRF batch verification \\
+\end{longtable}
+
+\subsection{1.5. Codec}\label{codec}
+
+\begin{itemize}
+\tightlist
+\item
+  \(\texttt{enc\_scalar}(s \in \bold{F})\): Encodes a scalar into 32
+  octets in little-endian representation.
+\item
+  \(\texttt{dec\_scalar}(buf \in \bold{\Sigma}^{32})\): Interpret octet
+  string \(buf\) as a little-endian integer. MUST output ``INVALID'' if
+  the resulting value is \(\geq r\).
+\item
+  \(\texttt{enc\_point}(P \in \bold{G})\): Encodes a point in compressed
+  form. The \(y\) coordinate is serialized in little-endian and the most
+  significant bit of the last octet encodes the sign of the
+  \(x\)-coordinate. This gives \texttt{ptLen} = \texttt{fLen} = \(32\).
+\item
+  \(\texttt{dec\_point}(buf \in \bold{\Sigma}^{32})\): Interpret octet
+  string \(buf\) as a compressed point. Mask the sign bit from the last
+  octet and interpret the result as a little-endian integer. MUST output
+  ``INVALID'' if the resulting value is \(\geq q\). Otherwise,
+  decompress the point and MUST output ``INVALID'' if it does not decode
+  to a point on the prime subgroup \(\bold{G}\).
+\item
+  \(\texttt{dec\_scalar\_mod}(buf \in \bold{\Sigma}^*)\): Interpret
+  octet string \(buf\) as a little-endian integer and reduce modulo the
+  prime field order \(r\).
+\item
+  \(\texttt{enc\_32}(n \in \mathbb{N}_{2^{32}})\): Encode integer \(n\)
+  as a 4-byte little-endian octet string.
+\end{itemize}
+
+Aggregate types (e.g.~proofs) MUST be encoded as the concatenation of
+their individual fields in the order given by the structure definition,
+without any separator.
+
+\subsection{1.6. Procedures}\label{procedures}
+
+\subsubsection{1.6.1. Transcript}\label{transcript}
+
+The transcript provides a Fiat-Shamir transform with an absorb/squeeze
+interface. Data is absorbed into an internal hash state; output bytes
+are squeezed from it. After the first squeeze, \(\texttt{absorb}\) MUST
+NOT be called.
+
+\textbf{Abstract interface}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\texttt{new\_transcript}() \to T\): Create a fresh transcript
+  instance and absorb \(\texttt{suite\_id}\).
+\item
+  \(\texttt{absorb}(data \in \bold{\Sigma}^*)\): Feed bytes into the
+  hash state. MUST NOT be called after squeeze.
+\item
+  \(\texttt{squeeze}(n \in \mathbb{N}) \to \bold{\Sigma}^n\): Produce
+  \(n\) output bytes.
+\item
+  \(\texttt{fork}() \to T\): Clone the transcript state.
+\end{itemize}
+
+A concrete instantiation using SHA-512 is given in Appendix A.1.
+
+\subsubsection{1.6.2. VRF Input}\label{vrf-input}
+
+The VRF input point \(I \in \bold{G}\) is derived from the input
+octet-string using a \(\texttt{hash\_to\_curve}\) function that maps
+arbitrary-length octet-strings to points in \(\bold{G}\).
+
+\[I \gets \texttt{hash\_to\_curve}(i)\]
+
+The function MUST behave as a random oracle: its output must be
+indistinguishable from a uniformly random point in \(\bold{G}\), and the
+discrete logarithm of the output with respect to any known base must be
+unknown.
+
+Verifiers MUST independently compute each \(I_i\) from the corresponding
+input octet-string using the procedure above. Accepting prover-supplied
+input points without recomputation breaks the VRF security guarantees,
+and in the case of Thin VRF (section 3), enables trivial forgery.
+
+A concrete instantiation using Elligator 2 is given in Appendix A.2.
+
+\subsubsection{1.6.3. VRF Output}\label{vrf-output}
+
+The VRF output point is generated from the VRF input point and secret
+key scalar:
+
+\[O \gets x \cdot I\]
+
+The VRF output hash is a fixed-length octet string derived from the
+output point using a transcript-based point-to-hash procedure. The
+procedure is deliberately independent of the proof scheme: for a given
+key and input, the output point \(O = x \cdot I\) is unique regardless
+of whether IETF VRF, Thin VRF, or Pedersen VRF is used to prove
+correctness. The scheme determines how the proof is constructed, not the
+VRF output itself. This separation allows applications to obtain
+consistent output hashes across schemes for the same underlying
+evaluation.
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(sk \in \bold{F}\): Secret scalar.
+  \(O \in \bold{G}\): VRF output point.
 \item
-  \(I \in \bold{G}\): VRF input point.
+  \(N \in \mathbb{N}\): Desired output length in bytes. MUST be fixed
+  per application context; \(N\) is not absorbed into the transcript, so
+  \(\texttt{squeeze}(N_1)\) is a prefix of \(\texttt{squeeze}(N_2)\) for
+  \(N_1 < N_2\).
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(o \in \bold{\Sigma}^N\): VRF output hash.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \(T \gets \texttt{new\_transcript}()\)
+\item
+  \(T.\texttt{absorb}(\texttt{PointToHash} \;\Vert\; \texttt{enc\_point}(O))\)
+\item
+  \(o \gets T.\texttt{squeeze}(N)\)
+\end{enumerate}
+
+\textbf{Transcript}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(T = \texttt{suite\_id} \;\Vert\; \texttt{PointToHash} \;\Vert\; \texttt{enc\_point}(O)\)
+\end{itemize}
+
+\subsubsection{1.6.4. Delinearization}\label{delinearization}
+
+Merges input/output pairs into a single pair using delinearization
+scalars derived from the transcript. For \(n = 0\), returns the identity
+pair. For \(n = 1\), the pair is returned unchanged (\(z_0 = 1\)). For
+\(n \geq 2\), random scalars prevent an attacker from mixing components
+across pairs.
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): Sequence of
+  input/output pairs.
+\item
+  \(T\): Transcript state.
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \((I_m, O_m) \in \bold{G}\times \bold{G}\): Merged input/output pair.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  If \(n = 0\): return \((\mathcal{O}, \mathcal{O})\)
+\item
+  \(T.\texttt{absorb}(\texttt{Delinearize})\)
+\item
+  \(z_0 \gets 1\)
+\item
+  For \(i = 1, \ldots, n-1\):
+  \(z_i \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))\)
+\item
+  \(I_m \gets \sum_{i=0}^{n-1} z_i \cdot I_i,\ O_m \gets \sum_{i=0}^{n-1} z_i \cdot O_i\)
+\item
+  Return \((I_m, O_m)\)
+\end{enumerate}
+
+\textbf{Transcript} (where \(T_{in}\) is the caller-supplied state):
+
+\begin{itemize}
+\tightlist
+\item
+  \(T = T_{in} \;\Vert\; \texttt{Delinearize}\)
+\end{itemize}
+
+\subsubsection{1.6.5. VRF Transcript}\label{vrf-transcript}
+
+Shared transcript construction used by all VRF-AD schemes. Absorbs
+input/output pairs, merges them via delinearization (section 1.6.4), and
+absorbs additional data.
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(scheme\): Scheme identifier tag.
+\item
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): Sequence of
+  input/output pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(T\): Transcript state.
+\item
+  \((I_m, O_m) \in \bold{G}\times \bold{G}\): Merged input/output pair.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \(T \gets \texttt{new\_transcript}()\)
+\item
+  \(T.\texttt{absorb}(scheme)\)
+\item
+  \(T.\texttt{absorb}(\texttt{enc\_32}(n))\)
+\item
+  For each \((I_i, O_i)\) in \(\overline{io}\):
+  \(T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))\)
+\item
+  \(T.\texttt{absorb}(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad)\)
+\item
+  \((I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{fork}())\)
+\item
+  Return \((T, (I_m, O_m))\)
+\end{enumerate}
+
+\textbf{Transcript}:
+
+\(\begin{aligned}
+T = &\; \texttt{suite\_id} \;\Vert\; scheme \\
+  &\; \Vert\; \texttt{enc\_32}(n) \;\Vert\; \texttt{enc\_point}(I_0) \;\Vert\; \texttt{enc\_point}(O_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(I_{n-1}) \;\Vert\; \texttt{enc\_point}(O_{n-1}) \\
+  &\; \Vert\; \texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad
+\end{aligned}\)
+
+\subsubsection{1.6.6. Nonce}\label{nonce}
+
+Deterministic nonce generation inspired by {[}RFC-8032{]} section 5.1.6.
+The transcript carries shared state from \(\texttt{vrf\_transcript}\),
+binding the nonce to the I/O pairs and additional data.
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(d \in \bold{F}\): Secret scalar.
+\item
+  \(T\): Transcript state.
 \end{itemize}
 
 \textbf{Output}:
@@ -255,31 +554,43 @@ in the Pedersen VRF case, different blinding factors.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(h \gets \texttt{point\_to\_string}(I)\;\Vert\;ad\)
+  \(T' \gets T.\texttt{fork}()\)
 \item
-  \(k \gets \texttt{ECVRF\_nonce\_generation}(\texttt{int\_to\_string}(sk),\;h)\)
+  \(T'.\texttt{absorb}(\texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(d))\)
+\item
+  \(h \gets T'.\texttt{squeeze}(64)\)
+\item
+  \(T.\texttt{absorb}(\texttt{Nonce} \;\Vert\; h)\)
+\item
+  \(k \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\text{expanded\_scalar\_len}))\)
+\item
+  If \(k = 0\): abort (implementation error; probability
+  \(\approx 2^{-253}\)).
 \end{enumerate}
 
-With \texttt{ECVRF\_nonce\_generation} as specified in section 5.4.2.2
-of \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}, and
-\texttt{point\_to\_string}, \texttt{int\_to\_string} as defined in
-section 2.1.
+\textbf{Transcript} (where \(T_{in}\) is the caller-supplied state):
 
-\subsection{1.10. Challenge Procedure}\label{challenge-procedure}
+\begin{itemize}
+\tightlist
+\item
+  \(T' = T_{in} \;\Vert\; \texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(d)\)
+\item
+  \(T = T_{in} \;\Vert\; \texttt{Nonce} \;\Vert\; h\)
+\end{itemize}
 
-Challenge construction extends the \texttt{ECVRF\_challenge\_generation}
-procedure from section 5.4.3 of
-\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]} to
-include additional data.
+\subsubsection{1.6.7. Challenge}\label{challenge}
+
+Derives a challenge scalar by absorbing curve points into the transcript
+and squeezing.
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(\bar{P} \in \bold{G}^n\): Sequence of \(n\) points.
+  \(\bar{P} \in \bold{G}^m\): Sequence of \(m\) points.
 \item
-  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+  \(T\): Transcript state.
 \end{itemize}
 
 \textbf{Output}:
@@ -296,111 +607,41 @@ include additional data.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(str_0 \gets \texttt{suite\_string}\;\Vert\;0x02\)
+  \(T.\texttt{absorb}(\texttt{Challenge})\)
 \item
-  \(str_i \gets str_{i-1}\;\Vert\;\texttt{point\_to\_string}(P_{i-1}),\ i = 1 \dots n\)
+  For each \(P_i\) in \(\bar{P}\):
+  \(T.\texttt{absorb}(\texttt{enc\_point}(P_i))\)
 \item
-  \(h \gets \texttt{hash}(str_n\;\Vert\;ad\;\Vert\;0x00)\)
-\item
-  \(c \gets \texttt{string\_to\_int}(h_{0 \dots cLen - 1})\)
+  \(c \gets \texttt{dec\_scalar\_mod}(T.\texttt{squeeze}(\texttt{challenge\_len}))\)
 \end{enumerate}
 
-With \texttt{point\_to\_string}, \texttt{string\_to\_int} and
-\texttt{hash} as defined in section 2.1.
+\textbf{Transcript} (where \(T_{in}\) is the caller-supplied state):
+
+\begin{itemize}
+\tightlist
+\item
+  \(T = T_{in} \;\Vert\; \texttt{Challenge} \;\Vert\; \texttt{enc\_point}(P_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(P_{m-1})\)
+\end{itemize}
 
 \section{2. IETF VRF}\label{ietf-vrf}
 
 Based on IETF \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}
-which is extended with the capability to sign additional user data
-(\(ad\)).
+but adapted with a transcript-based Fiat-Shamir transform, support for
+additional data (\(ad\)), and multiple I/O pairs via delinearization.
+These changes make this scheme incompatible with standard RFC-9381
+implementations and test vectors.
 
-\subsection{2.1. Configuration}\label{configuration}
-
-Configuration is given by following the \emph{``cipher suite''}
-guidelines defined in section 5.5 of
-\href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}.
-
-\begin{itemize}
-\item
-  \texttt{suite\_string} = \texttt{"Bandersnatch\_SHA-512\_ELL2"}.
-\item
-  The EC group \(\bold{G}\) is the prime subgroup of the Bandersnatch
-  elliptic curve, in Twisted Edwards form, with finite field and curve
-  parameters as specified in
-  \href{https://eprint.iacr.org/2021/1152}{MSZ21}. For this group,
-  \texttt{fLen} = \texttt{qLen} = \(32\) and \texttt{cofactor} = \(4\).
-\item
-  The prime subgroup generator \(G \in \bold{G}\) is defined as follows:
-  \[_{G_x = 18886178867200960497001835917649091219057080094937609519140440539760939937304}\]
-  \[_{G_y = 19188667384257783945677642223292697773471335439753913231509108946878080696678}\]
-
-  \begin{itemize}
-  \tightlist
-  \item
-    Compressed:
-    \(_{\texttt{0x664197ccb667315e6064e4ee81ad8c3586d5dcba508b7d150f3e12da9e666c2a}}\)
-  \end{itemize}
-\item
-  \texttt{cLen} = 16. This value provides 128 bits of security, matching
-  the effective security level of the Bandersnatch elliptic curve, and
-  it ensures that the statistical bias during the modular reduction of
-  the challenge is negligible.
-\item
-  The public key generation primitive is \(pk = sk \cdot G\), with
-  \(sk\) the secret key scalar and \(G\) the group generator. In this
-  cipher suite, the secret scalar \texttt{x} is equal to the secret key
-  \texttt{sk}.
-\item
-  \texttt{encode\_to\_curve\_salt} = \texttt{""} (empty - no salt)
-\item
-  The \texttt{ECVRF\_nonce\_generation} function is specified in section
-  5.4.2.2 of \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}.
-\item
-  The \texttt{int\_to\_string} function encodes into the 32 octets
-  little endian representation.
-\item
-  The \texttt{string\_to\_int} function decodes an octet-string as a
-  little-endian integer eventually reducing modulo the prime field
-  order.
-\item
-  The \texttt{point\_to\_string} function converts a point in
-  \(\bold{G}\) to an octet-string using compressed form. The \(y\)
-  coordinate is encoded using \texttt{int\_to\_string} function and the
-  most significant bit of the last octet is used to keep track of \(x\)
-  sign. This implies that \texttt{ptLen\ =\ flen\ =\ 32}.
-\item
-  The \texttt{string\_to\_point} function converts an octet-string to a
-  point on \(\bold{G}\). The string most significant bit is removed to
-  recover the \(x\) coordinate as function of \(y\), which is first
-  decoded from the rest of the string using \texttt{int\_to\_string}
-  procedure. This function MUST outputs ``INVALID'' if the octet-string
-  does not decode to a point on the prime subgroup \(\bold{G}\).
-\item
-  The hash function \texttt{hash} is SHA-512 as specified in
-  \href{https://datatracker.ietf.org/doc/rfc6234}{RFC-6234} {[}6{]},
-  with \texttt{hLen} = 64.
-\item
-  The \texttt{ECVRF\_encode\_to\_curve} function uses \emph{Elligator2}
-  method as described in section 6.8.2 of
-  \href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380} and in
-  section 5.4.1.2 of
-  \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381}, with
-  parametrized with \texttt{h2c\_suite\_ID\_string} =
-  \texttt{"Bandersnatch\_XMD:SHA-512\_ELL2\_RO\_"} and domain separation
-  tag \texttt{DST\ =\ "ECVRF\_"} \(\Vert\)
-  \texttt{h2c\_suite\_ID\_string} \(\Vert\) \texttt{suite\_string}.
-\end{itemize}
-
-\subsection{2.2. Prove}\label{prove}
+\subsection{2.1. Prove}\label{prove}
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(x \in \bold{F}\): Secret key
+  \(x \in \bold{F}\): Secret key.
 \item
-  \(I \in \bold{G}\): VRF input point
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \end{itemize}
@@ -410,9 +651,7 @@ guidelines defined in section 5.5 of
 \begin{itemize}
 \tightlist
 \item
-  \(O \in \bold{G}\): VRF output point
-\item
-  \(\pi \in (\bold{F}, \bold{F})\): Schnorr-like proof
+  \(\pi = (c, s) \in (\bold{F}, \bold{F})\): Schnorr-like proof.
 \end{itemize}
 
 \textbf{Steps}:
@@ -421,45 +660,36 @@ guidelines defined in section 5.5 of
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(O \gets x \cdot I\)
-\item
   \(Y \gets x \cdot G\)
 \item
-  \(k \gets \texttt{nonce}(x, I, ad)\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)\)
 \item
-  \(c \gets \texttt{challenge}(Y, I, O, k \cdot G, k \cdot I, ad)\)
+  \(k \gets \texttt{nonce}(x, T.\texttt{fork}())\)
+\item
+  \(U \gets k \cdot G\), \(\quad V \gets k \cdot I_m\)
+\item
+  \(c \gets \texttt{challenge}([U, V], T)\)
 \item
   \(s \gets k + c \cdot x\)
 \item
   \(\pi \gets (c, s)\)
 \end{enumerate}
 
-\textbf{Externals}:
-
-\begin{itemize}
-\tightlist
-\item
-  \(\texttt{nonce}\): refer to section 1.9 of this specification.
-\item
-  \(\texttt{challenge}\): refer to section 1.10 of this specification.
-\end{itemize}
-
-\subsection{2.3. Verify}\label{verify}
+\subsection{2.2. Verify}\label{verify}
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(Y \in \bold{G}\): Public key
+  \(Y \in \bold{G}\): Public key.
 \item
-  \(I \in \bold{G}\): VRF input point
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \item
-  \(O \in \bold{G}\): VRF output point
-\item
-  \(\pi \in (\bold{F}, \bold{F})\): Schnorr-like proof
+  \(\pi = (c, s) \in (\bold{F}, \bold{F})\): Schnorr-like proof.
 \end{itemize}
 
 \textbf{Output}:
@@ -477,29 +707,212 @@ guidelines defined in section 5.5 of
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \((c, s) \gets \pi\)
+  Validate \(Y\) and all \(I_i, O_i\)
+  \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if any is
+  invalid or the identity.
 \item
-  If \(Y\) or \(O\) are not valid points in \(\bold{G}\), output
-  \(\bot\).
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)\)
 \item
   \(U \gets s \cdot G - c \cdot Y\)
 \item
-  \(V \gets s \cdot I - c \cdot O\)
+  \(V \gets s \cdot I_m - c \cdot O_m\)
 \item
-  \(c' \gets \texttt{challenge}(Y, I, O, U, V, ad)\)
+  \(c' \gets \texttt{challenge}([U, V], T)\)
 \item
   \(\theta \gets \top \text{ if } c = c' \text{ else } \bot\)
 \end{enumerate}
 
-\textbf{Externals}:
+\section{3. Thin VRF}\label{thin-vrf}
+
+Thin VRF is derived from the PedVRF construction in section 4 of
+\href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]} by removing the
+blinding mechanism entirely (see remark on page 13 of the paper).
+Without blinding, Pedersen VRF reduces to two independent DLEQ checks on
+\((G, Y)\) and \((I_m, O_m)\) with the same secret \(x\). Thin VRF
+merges these into a single DLEQ relation by prepending \((G, Y)\) to the
+I/O pairs and applying delinearization, then proves it with a
+Schnorr-like proof \((R, s)\). Storing the nonce commitment \(R\)
+(rather than the challenge \(c\)) enables batch verification.
+
+\textbf{Security}: VRF input points MUST be constructed via
+hash-to-curve. If a prover knows \(d\) such that \(I = d \cdot G\), they
+can forge arbitrary outputs for that input, because the delinearization
+merges the Schnorr and VRF pairs into a single check that collapses when
+all points are multiples of \(G\).
+
+\subsection{3.1. Prove}\label{prove-1}
+
+\textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(\texttt{challenge}\): as defined for \(Prove\)
+  \(x \in \bold{F}\): Secret key.
+\item
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
+\item
+  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \end{itemize}
 
-\section{3. Pedersen VRF}\label{pedersen-vrf}
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\pi = (R, s) \in (\bold{G}, \bold{F})\): Thin VRF proof.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \(Y \gets x \cdot G\)
+\item
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)\)
+\item
+  \(k \gets \texttt{nonce}(x, T.\texttt{fork}())\)
+\item
+  \(R \gets k \cdot I_m\)
+\item
+  \(c \gets \texttt{challenge}([R], T)\)
+\item
+  \(s \gets k + c \cdot x\)
+\item
+  \(\pi \gets (R, s)\)
+\end{enumerate}
+
+\subsection{3.2. Verify}\label{verify-1}
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(Y \in \bold{G}\): Public key.
+\item
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
+\item
+  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+\item
+  \(\pi = (R, s) \in (\bold{G}, \bold{F})\): Thin VRF proof.
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\theta \in \{ \top, \bot \}\): \(\top\) if proof is valid, \(\bot\)
+  otherwise.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Validate \(Y\), \(R\), and all \(I_i, O_i\)
+  \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if any is
+  invalid or the identity.
+\item
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)\)
+\item
+  \(c \gets \texttt{challenge}([R], T)\)
+\item
+  \(\theta \gets \top \text{ if } s \cdot I_m = R + c \cdot O_m \text{ else } \bot\)
+\end{enumerate}
+
+\subsection{3.3. Batch Verify}\label{batch-verify}
+
+Multiple Thin VRF proofs can be verified together by combining the
+individual verification equations with random weights (Schwartz-Zippel
+lemma).
+
+\textbf{Input}:
+
+\begin{itemize}
+\tightlist
+\item
+  For \(j = 0, \ldots, N-1\): a tuple
+  \((Y_j, \overline{io}_j, ad_j, \pi_j)\) where:
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \(Y_j \in \bold{G}\): Public key.
+  \item
+    \(\overline{io}_j \in (\bold{G}\times \bold{G})^{M_j}\): VRF
+    input/output pairs.
+  \item
+    \(ad_j \in \bold{\Sigma}^*\): Additional data octet-string.
+  \item
+    \(\pi_j = (R_j, s_j) \in (\bold{G}, \bold{F})\): Thin VRF proof.
+  \end{itemize}
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\theta \in \{ \top, \bot \}\): \(\top\) if all proofs verify,
+  \(\bot\) otherwise.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  For each proof \(j\):
+
+  \begin{enumerate}
+  \def\labelenumii{\alph{enumii}.}
+  \tightlist
+  \item
+    Validate \(Y_j\), \(R_j\), and all \(I_{j,i}, O_{j,i}\)
+    \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if any is
+    invalid or the identity.
+  \item
+    \((T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y_j)] \;\Vert\; \overline{io}_j, ad_j)\)
+  \item
+    \(c_j \gets \texttt{challenge}([R_j], T_j)\)
+  \end{enumerate}
+\item
+  Derive random weights:
+
+  \begin{enumerate}
+  \def\labelenumii{\alph{enumii}.}
+  \tightlist
+  \item
+    \(T_w \gets \texttt{new\_transcript}()\)
+  \item
+    \(T_w.\texttt{absorb}(\texttt{ThinBatch})\)
+  \item
+    For each \(j\):
+    \(T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j))\)
+  \end{enumerate}
+\item
+  Check the combined equation:
+  \[\sum_{j=0}^{N-1} w_j \cdot (s_j \cdot I_{m,j} - R_j - c_j \cdot O_{m,j}) = \mathcal{O}\]
+  where
+  \(w_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))\).
+\end{enumerate}
+
+\textbf{Transcript}:
+
+\(\begin{aligned}
+T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{ThinBatch} \\
+  &\; \Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1})
+\end{aligned}\)
+
+\section{4. Pedersen VRF}\label{pedersen-vrf}
 
 Pedersen VRF resembles IETF EC-VRF but replaces the public key with a
 Pedersen commitment to the secret key, which makes this VRF useful in
@@ -516,38 +929,27 @@ This specification mostly follows the design proposed by
 with some details about blinding base point value and challenge
 generation procedure.
 
-\subsection{3.1. Configuration}\label{configuration-1}
+The \emph{blinding base} \(B \in \bold{G}\) is defined as:
+\[\footnotesize\begin{aligned}
+x &= 5226425992571220769365843487102064307101272980791993134273780736997544949382 \\
+y &= 46544868206883149332782258938702216106598247683423727002885664111567608220426
+\end{aligned}\]
 
-Pedersen VRF is configured for prime subgroup \(\bold{G}\) of
-Bandersnatch elliptic curve \(E\), in Twisted Edwards form, defined in
-\href{https://eprint.iacr.org/2021/1152}{MSZ21} {[}4{]} with
-\emph{blinding base} \(B \in \bold{G}\) defined as follows:
-\[_{B_x = 6150229251051246713677296363717454238956877613358614224171740096471278798312}\]
-\[_{B_y = 28442734166467795856797249030329035618871580593056783094884474814923353898473}\]
+A point with unknown discrete logarithm derived using the
+\texttt{hash\_to\_curve} function as described in Appendix A.2 with
+input the string: \texttt{"pedersen-blinding"}.
 
-\begin{itemize}
-\tightlist
-\item
-  Compressed:
-  \(_{\texttt{0xe93da06b869766b158d20b843ec648cc68e0b7ba2f7083acf0f154205d04e23e}}\)
-\end{itemize}
-
-For all the other configurable parameters and external functions we
-adhere as much as possible to the Bandersnatch cipher suite for IETF VRF
-described in section 2.1 of this specification.
-
-\subsection{3.2. Prove}\label{prove-1}
+\subsection{4.1. Prove}\label{prove-2}
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(x \in \bold{F}\): Secret key
+  \(x \in \bold{F}\): Secret key.
 \item
-  \(b \in \bold{F}\): Secret blinding factor
-\item
-  \(I \in \bold{G}\): VRF input point
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \end{itemize}
@@ -557,10 +959,10 @@ described in section 2.1 of this specification.
 \begin{itemize}
 \tightlist
 \item
-  \(O \in \bold{G}\): VRF output point
+  \(\pi = (\bar{Y}, R, O_k, s, s_b) \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
+  Pedersen proof.
 \item
-  \(\pi \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
-  Pedersen proof
+  \(b \in \bold{F}\): Blinding factor.
 \end{itemize}
 
 \textbf{Steps}:
@@ -569,42 +971,42 @@ described in section 2.1 of this specification.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(O \gets x \cdot I\)
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)\)
 \item
-  \(k \gets \texttt{nonce}(x, I, \texttt{int\_to\_string}(b)\;\Vert\;ad)\)
-\item
-  \(k_b \gets \texttt{nonce}(b, I, \texttt{int\_to\_string}(x)\;\Vert\;ad)\)
+  \(b \gets \texttt{blinding}(x, T.\texttt{fork}())\) (see Appendix A.4)
 \item
   \(\bar{Y} \gets x \cdot G + b \cdot B\)
 \item
+  \(T.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}))\)
+\item
+  \(k \gets \texttt{nonce}(x, T.\texttt{fork}())\),
+  \(\quad k_b \gets \texttt{nonce}(b, T.\texttt{fork}())\)
+\item
   \(R \gets k \cdot G + k_b \cdot B\)
 \item
-  \(O_k \gets k \cdot I\)
+  \(O_k \gets k \cdot I_m\)
 \item
-  \(c \gets \texttt{challenge}(\bar{Y}, I, O, R, O_k, ad)\)
+  \(c \gets \texttt{challenge}([R, O_k], T)\)
 \item
-  \(s \gets k + c \cdot x\)
-\item
-  \(s_b \gets k_b + c \cdot b\)
+  \(s \gets k + c \cdot x\), \(\quad s_b \gets k_b + c \cdot b\)
 \item
   \(\pi \gets (\bar{Y}, R, O_k, s, s_b)\)
 \end{enumerate}
 
-\subsection{3.3. Verify}\label{verify-1}
+\subsection{4.2. Verify}\label{verify-2}
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(I \in \bold{G}\): VRF input point
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \item
-  \(O \in \bold{G}\): VRF output point
-\item
-  \(\pi \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
-  Pedersen proof
+  \(\pi = (\bar{Y}, R, O_k, s, s_b) \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
+  Pedersen proof.
 \end{itemize}
 
 \textbf{Output}:
@@ -622,35 +1024,153 @@ described in section 2.1 of this specification.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \((\bar{Y}, R, O_k, s, s_b) \gets \pi\)
+  Validate \(\bar{Y}\), \(R\), \(O_k\), and all \(I_i, O_i\)
+  \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if any is
+  invalid or the identity.
 \item
-  If \(\bar{Y}, R, O_k\) or \(O\) are not valid points in \(\bold{G}\),
-  output \(\bot\).
+  \((T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)\)
 \item
-  \(c \gets \texttt{challenge}(\bar{Y}, I, O, R, O_k, ad)\)
+  \(T.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}))\)
 \item
-  \(\theta_0 \gets \top \text{ if } O_k + c \cdot O = I \cdot s \text{ else } \bot\)
+  \(c \gets \texttt{challenge}([R, O_k], T)\)
+\item
+  \(\theta_0 \gets \top \text{ if } O_k + c \cdot O_m = s \cdot I_m \text{ else } \bot\)
 \item
   \(\theta_1 \gets \top \text{ if } R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B \text{ else } \bot\)
 \item
   \(\theta = \theta_0 \land \theta_1\)
 \end{enumerate}
 
-\section{4. Ring VRF}\label{ring-vrf}
+Note: no public key appears in the verify inputs -- verification uses
+the committed key \(\bar{Y}\) from the proof.
 
-Anonymized ring VRF based of {[}Pedersen VRF{]} and Ring Proof as
-proposed in \href{https://github.com/davxy/ring-proof-spec}{VG24}.
+\subsection{4.3. Unblinding}\label{unblinding}
 
-\subsection{4.1. Configuration}\label{configuration-2}
+To link a Pedersen VRF proof to a specific public key, the prover
+reveals the blinding factor \(b\) and the verifier checks:
 
-Ring proof is configured to work together with Pedersen VRF as presented
-in this specification.
+\[\bar{Y} = Y + b \cdot B\]
 
-The following configuration should be applied to specialize
-\href{https://github.com/davxy/ring-proof-spec}{VG24} in order to
-instance the concrete scheme.
+where \(Y \in \bold{G}\setminus \{\mathcal{O}\}\) is the claimed public
+key. The verifier MUST validate \(Y\) before accepting the association.
+
+\subsection{4.4. Batch Verify}\label{batch-verify-1}
+
+Multiple Pedersen VRF proofs can be verified together by combining the
+individual verification equations with random weights (Schwartz-Zippel
+lemma). Each proof contributes two equations (VRF correctness and
+Pedersen commitment correctness), each weighted by an independent random
+scalar.
+
+\textbf{Input}:
 
 \begin{itemize}
+\tightlist
+\item
+  For \(j = 0, \ldots, N-1\): a tuple \((\overline{io}_j, ad_j, \pi_j)\)
+  where:
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \(\overline{io}_j \in (\bold{G}\times \bold{G})^{M_j}\): VRF
+    input/output pairs.
+  \item
+    \(ad_j \in \bold{\Sigma}^*\): Additional data octet-string.
+  \item
+    \(\pi_j = (\bar{Y}_j, R_j, O_{k,j}, s_j, s_{b,j}) \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
+    Pedersen proof.
+  \end{itemize}
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\theta \in \{ \top, \bot \}\): \(\top\) if all proofs verify,
+  \(\bot\) otherwise.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  For each proof \(j\):
+
+  \begin{enumerate}
+  \def\labelenumii{\alph{enumii}.}
+  \tightlist
+  \item
+    Validate \(\bar{Y}_j\), \(R_j\), \(O_{k,j}\), and all
+    \(I_{j,i}, O_{j,i}\) \(\in \bold{G}\setminus \{\mathcal{O}\}\),
+    output \(\bot\) if any is invalid or the identity.
+  \item
+    \((T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}_j, ad_j)\)
+  \item
+    \(T_j.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}_j))\)
+  \item
+    \(c_j \gets \texttt{challenge}([R_j, O_{k,j}], T_j)\)
+  \end{enumerate}
+\item
+  Derive random weights:
+
+  \begin{enumerate}
+  \def\labelenumii{\alph{enumii}.}
+  \tightlist
+  \item
+    \(T_w \gets \texttt{new\_transcript}()\)
+  \item
+    \(T_w.\texttt{absorb}(\texttt{PedersenBatch})\)
+  \item
+    For each \(j\):
+    \(T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j) \;\Vert\; \texttt{enc\_scalar}(s_{b,j}))\)
+  \end{enumerate}
+\item
+  Check the combined equations:
+  \[\sum_{j=0}^{N-1} t_j \cdot (O_{k,j} + c_j \cdot O_{m,j} - s_j \cdot I_{m,j}) + u_j \cdot (R_j + c_j \cdot \bar{Y}_j - s_j \cdot G - s_{b,j} \cdot B) = \mathcal{O}\]
+  where:
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \(t_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))\)
+  \item
+    \(u_j \gets \texttt{dec\_scalar\_mod}(T_w.\texttt{squeeze}(\texttt{challenge\_len}))\)
+  \end{itemize}
+\end{enumerate}
+
+\textbf{Transcript}:
+
+\(\begin{aligned}
+T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{PedersenBatch} \\
+  &\; \Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \texttt{enc\_scalar}(s_{b,0}) \\
+  &\; \Vert\; \cdots \\
+  &\; \Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{b,N-1})
+\end{aligned}\)
+
+\section{5. Ring VRF}\label{ring-vrf}
+
+Anonymized ring VRF based on Pedersen VRF (section 4) and Ring Proof as
+proposed in \href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]}.
+
+The ring proof can be seen as a special case of the Committee Key Scheme
+(CKS) introduced by \href{https://eprint.iacr.org/2022/1205}{CSSV22}
+{[}3{]}, reduced to a single signer. In CKS, a prover commits to a set
+of public keys using a KZG polynomial commitment and produces a SNARK
+showing that a subset of keys -- identified by a bitvector -- belongs to
+the committed set. The ring proof is the degenerate case where the
+bitvector has exactly one bit set: it proves that a single (blinded) key
+is a member of the committed ring, without revealing which one.
+
+The concrete specification of the ring proof scheme is given in
+\href{https://github.com/davxy/ring-proof-spec}{VG24} {[}5{]}. The
+following configuration specializes it for this scheme:
+
+\begin{itemize}
+\tightlist
 \item
   \textbf{Groups and Fields}:
 
@@ -684,63 +1204,57 @@ instance the concrete scheme.
     Begin with empty transcript and ``ring-proof'' label.
   \item
     Push \(R\) to the transcript after instancing.
-  \item
-    TODO: Specify the order and how parameters are added to the
-    transcript as we progress the protocol.
   \end{itemize}
 \item
-  Accumulator seed point in Twisted Edwards form:
-  \[_{\text{S}_x = 37805570861274048643170021838972902516980894313648523898085159469000338764576}\]
-  \[_{\text{S}_y = 14738305321141000190236674389841754997202271418876976886494444739226156422510}\]
+  Accumulator base point \(S \in \bold{G}\) is defined as:
+  \[\footnotesize\begin{aligned}
+  x &= 42303668360647658687880456753606405401141031996216729331450763906967498848487 \\
+  y &= 41898972259388202032055565840730004413653698329702630697317353721966090663285
+  \end{aligned}\]
+\end{itemize}
 
-  \begin{itemize}
-  \tightlist
-  \item
-    Compressed:
-    \(_{\texttt{0x6e5574f9077fb76c885c36196a832dbadd64142d305be5487724967acf9595a0}}\)
-  \end{itemize}
+A point with unknown discrete logarithm derived using the
+\texttt{hash\_to\_curve} function as described in Appendix A.2 with
+input the string: \texttt{"ring-accumulator"}.
+
+\begin{itemize}
+\tightlist
 \item
-  Padding point in Twisted Edwards form:
-  \[_{\square_x = 26287722405578650394504321825321286533153045350760430979437739593351290020913}\]
-  \[_{\square_y = 19058981610000167534379068105702216971787064146691007947119244515951752366738}\]
+  Padding point \(\square \in \bold{G}\) is defined as:
+  \[\footnotesize\begin{aligned}
+  x &= 29586100106858075217954567072572265001347911471605742544678436487322334776392 \\
+  y &= 21753411410084671346581650250322348778806357231808407562422401169820213423498
+  \end{aligned}\]
+\end{itemize}
 
-  \begin{itemize}
-  \tightlist
-  \item
-    Compressed:
-    \(_{\texttt{0x92ca79e61dd90c1573a8693f199bf6e1e86835cc715cdcf93f5ef222560023aa}}\)
-  \end{itemize}
+A point with unknown discrete logarithm derived using the
+\texttt{hash\_to\_curve} function as described in Appendix A.2 with
+input the string: \texttt{"ring-padding"}.
 
-  A point with unknown discrete logarithm derived using the
-  \texttt{ECVRF\_encode\_to\_curve} function as described in IETF suite
-  {[}Configuration{]} section with input the string:
-  \texttt{"ring-proof-pad"}.
+\begin{itemize}
 \item
   Polynomials domain (\(\langle \omega \rangle = \mathbb{D}\))
   generator:
-  \[_{\omega = 49307615728544765012166121802278658070711169839041683575071795236746050763237}\]
+  \[\footnotesize \omega = 49307615728544765012166121802278658070711169839041683575071795236746050763237\]
 \item
   \(|\mathbb{D}| = 2048\)
 \end{itemize}
 
-\subsection{4.2. Prove}\label{prove-2}
+\subsection{5.1. Prove}\label{prove-3}
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(x \in \bold{F}\): Secret key
+  \(x \in \bold{F}\): Secret key.
 \item
-  \(P \in ?\): Ring prover
-\item
-  \(k \in \mathbb{N}_k\): prover public key position within the ring
-\item
-  \(b \in \bold{F}\): Secret blinding factor
-\item
-  \(I \in \bold{G}\): VRF input point
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+\item
+  \(P\): Ring prover (encapsulates ring keys and prover index).
 \end{itemize}
 
 \textbf{Output}:
@@ -748,13 +1262,11 @@ instance the concrete scheme.
 \begin{itemize}
 \tightlist
 \item
-  \(O \in \bold{G}\): VRF output point
-\item
   \(\pi_p \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
-  Pedersen proof
+  Pedersen proof.
 \item
   \(\pi_r \in ((G_1)^4, (\bold{F})^7, G_1, \bold{F}, G_1, G_1)\): Ring
-  proof
+  proof.
 \end{itemize}
 
 \textbf{Steps}:
@@ -763,31 +1275,35 @@ instance the concrete scheme.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \((O, \pi_p) \gets Pedersen.prove(x, b, k, I, ad)\)
+  \((\pi_p, b) \gets Pedersen.prove(x, \overline{io}, ad)\)
 \item
   \(\pi_r \gets Ring.prove(P, b)\)
 \end{enumerate}
 
-\subsection{4.3. Verify}\label{verify-2}
+The blinding factor \(b\) is derived internally by Pedersen prove
+(section 4.1, step 2) and forwarded to the ring prover. \(Ring.prove\)
+and \(Ring.verify\) are defined in
+\href{https://github.com/davxy/ring-proof-spec}{VG24} {[}5{]}.
+
+\subsection{5.2. Verify}\label{verify-3}
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(V \in (G_1)^3\): Ring verifier (pre-processed commitment).
-\item
-  \(I \in \bold{G}\): VRF input point.
-\item
-  \(O \in G\): VRF output point.
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
 \item
   \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
 \item
   \(\pi_p \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
-  Pedersen proof
+  Pedersen proof.
 \item
   \(\pi_r \in ((G_1)^4, (\bold{F})^7, G_1, \bold{F}, G_1, G_1)\): Ring
-  proof
+  proof.
+\item
+  \(V \in (G_1)^3\): Ring verifier (pre-processed commitment).
 \end{itemize}
 
 \textbf{Output}:
@@ -805,32 +1321,87 @@ instance the concrete scheme.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(\theta_0 = Pedersen.verify(I, ad, O, \pi_p)\)
+  \(\theta_0 \gets Pedersen.verify(\overline{io}, ad, \pi_p)\)
 \item
   \((\bar{Y}, R, O_k, s, s_b) \gets \pi_p\)
 \item
-  \(\theta_1 = Ring.verify(V, \pi_r, \bar{Y})\)
+  \(\theta_1 \gets Ring.verify(V, \pi_r, \bar{Y})\)
 \item
   \(\theta \gets \theta_0 \land \theta_1\)
 \end{enumerate}
 
-\section{Appendix A. Recommendations}\label{appendix-a.-recommendations}
+\section{Appendix A. Concrete
+Instantiations}\label{appendix-a.-concrete-instantiations}
 
-\subsection{A.1. Deterministic Secret Key Scalar
-Generation}\label{a.1.-deterministic-secret-key-scalar-generation}
+The following are concrete instantiations of the abstract interfaces
+defined in the main specification. They are provided to enable
+interoperable implementations and reproducible test vectors. Alternative
+constructions that satisfy the same security requirements are equally
+valid.
 
-For convenience and to facilitate deterministic key generation (e.g.,
-from mnemonic phrases), we suggest the following method to derive a
-secret scalar from an arbitrary byte string seed. This procedure is not
-mandated by the specification and may be replaced by any secure method
-that produces uniformly distributed scalars in the field \(\bold{F}\).
+\subsection{A.1. Transcript
+Construction}\label{a.1.-transcript-construction}
+
+Instantiation of the transcript interface (section 1.6.1) using SHA-512.
+
+\textbf{Initialization}: \(\texttt{new\_transcript}()\) creates a fresh
+SHA-512 state and feeds \(\texttt{suite\_id}\) into it.
+
+\textbf{Absorb}: feeds raw bytes directly into the SHA-512 state.
+Consecutive absorb calls are equivalent to a single absorb of the
+concatenated data. This is safe because all protocol fields use
+fixed-width encoding (\(\texttt{enc\_point}\): 32 bytes,
+\(\texttt{enc\_scalar}\): 32 bytes, \(\texttt{enc\_32}\): 4 bytes,
+domain tags: 1 byte) or explicit length prefixing (\(ad\) via
+\(\texttt{enc\_32}(\texttt{len}(ad)) \;\Vert\; ad\)), so the byte stream
+is unambiguous given the inputs agreed upon by both parties.
+
+\textbf{Squeeze} (counter-mode XOF): on the first squeeze call, finalize
+the SHA-512 state to obtain a 64-byte \(seed\). Then produce output
+blocks:
+
+\[block_i = \text{SHA-512}(seed \;\Vert\; \texttt{enc\_32}(i)) \quad \text{for } i = 0, 1, 2, \ldots\]
+
+Each block yields 64 bytes. Output is read sequentially across blocks;
+partial block state is preserved between squeeze calls.
+
+\textbf{Fork}: duplicates the full internal state (including any partial
+block position if squeezing has begun).
+
+\subsection{A.2. Hash to Curve}\label{a.2.-hash-to-curve}
+
+Instantiation of the \(\texttt{hash\_to\_curve}\) function (section
+1.6.2) using the method defined in section 3 of
+\href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380} {[}6{]}, with
+the \emph{Elligator 2} map to curve (section 6.8.2) and
+\(\texttt{expand\_message\_xmd}\) with SHA-512 (section 5.3.1).
+
+This is the random oracle (\texttt{\_RO\_}) construction: the input is
+hashed to two independent field elements, each is mapped to a curve
+point via Elligator 2, and the results are added.
+
+\[I \gets \texttt{hash\_to\_curve\_ell2}(DST, i)\]
+
+The domain separation tag is:
+
+\[DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_id}\]
+
+where \texttt{h2c\_suite\_id} =
+\texttt{"Bandersnatch\_XMD:SHA-512\_ELL2\_RO\_"} is the RFC-9380 suite
+identifier string determined by the curve, hash, and h2c bytes of
+\texttt{suite\_id}.
+
+\subsection{A.3. Secret Key
+Generation}\label{a.3.-secret-key-generation}
+
+Derives a secret scalar from a 32-byte seed.
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(seed \in \bold{\Sigma}^*\): seed octet-string.
+  \(seed \in \bold{\Sigma}^{32}\): seed octet-string.
 \end{itemize}
 
 \textbf{Output}:
@@ -838,7 +1409,7 @@ that produces uniformly distributed scalars in the field \(\bold{F}\).
 \begin{itemize}
 \tightlist
 \item
-  \(secret \in \bold{F}\): secret key scalar.
+  \(x \in \bold{F}\): secret key scalar.
 \end{itemize}
 
 \textbf{Steps}:
@@ -847,40 +1418,54 @@ that produces uniformly distributed scalars in the field \(\bold{F}\).
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(h \gets \text{sha-512}(seed)\)
+  \(i \gets 0\)
 \item
-  Interpret \(h\) as a 512-bit little-endian integer \(v\).
+  \(T \gets \texttt{new\_transcript}()\)
 \item
-  Reduce \(v\) modulo the prime order \(r\) of the scalar field to get
-  \(secret\).
+  \(T.\texttt{absorb}(seed)\)
+\item
+  If \(i > 0\): \(T.\texttt{absorb}(i)\) where \(i\) is encoded as a
+  single octet
+\item
+  \(d \gets \texttt{dec\_scalar\_mod}(seed)\)
+\item
+  \(x \gets \texttt{nonce}(d, T)\)
+\item
+  If \(x = 0\): increment \(i\) and go to step 2
+\item
+  Return \(x\)
 \end{enumerate}
 
-The resulting \(secret\) scalar is used as the secret key in subsequent
-operations.
+The seed is absorbed into the transcript and also passed as a scalar to
+the \(\texttt{nonce}\) procedure (section 1.6.6), ensuring seed entropy
+flows through both the transcript state and the secret scalar input
+paths.
 
-Note: Unlike Ed25519-style key generation, this procedure does not apply
-clamping or any bit-masking to the scalar. The scalar is derived via a
-direct modular reduction, which ensures a uniform distribution over
-\(\bold{F}\).
+\subsection{A.4. Blinding Factor
+Generation}\label{a.4.-blinding-factor-generation}
 
-\subsection{A.2. Deterministic Blinding Factor
-Generation}\label{a.2.-deterministic-blinding-factor-generation}
+Generates the Pedersen VRF blinding factor deterministically from the
+secret key and the VRF transcript state, using the nonce function
+(section 1.6.6) with a distinct domain separator.
 
-For Pedersen VRF, the blinding factor may be generated deterministically
-from the secret key, VRF input point, and additional data. This
-procedure is loosely inspired by the challenge generation but uses a
-distinct domain separator.
+\textbf{Linkability warning}: because \(b\) is derived deterministically
+from \((x, T)\), two Pedersen VRF proofs with the same secret key, I/O
+pairs, and additional data will produce the same blinding factor \(b\)
+and therefore the same blinded public key
+\(\bar{Y} = x \cdot G + b \cdot B\). An observer can detect that both
+proofs originate from the same signer by comparing \(\bar{Y}\) values.
+Applications that require unlinkability across repeated proofs on the
+same inputs should generate \(b\) as a fresh uniformly random scalar
+rather than using this deterministic method.
 
 \textbf{Input}:
 
 \begin{itemize}
 \tightlist
 \item
-  \(sk \in \bold{F}\): Secret scalar.
+  \(x \in \bold{F}\): Secret scalar.
 \item
-  \(I \in \bold{G}\): VRF input point.
-\item
-  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+  \(T\): Transcript state (from \(\texttt{vrf\_transcript}\)).
 \end{itemize}
 
 \textbf{Output}:
@@ -897,29 +1482,44 @@ distinct domain separator.
 \def\labelenumi{\arabic{enumi}.}
 \tightlist
 \item
-  \(h \gets \texttt{hash}(\texttt{suite\_string}\;\Vert\;0\text{xCC}\;\Vert\;\texttt{int\_to\_string}(sk)\;\Vert\;\texttt{point\_to\_string}(I)\;\Vert\;ad\;\Vert\;0\text{x00})\)
+  \(T.\texttt{absorb}(\texttt{PedersenBlinding})\)
 \item
-  \(b \gets \texttt{string\_to\_int}(h)\)
+  \(b \gets \texttt{nonce}(x, T)\)
 \end{enumerate}
 
-With \texttt{hash}, \texttt{int\_to\_string}, \texttt{point\_to\_string}
-and \texttt{string\_to\_int} as defined in section 2.1. Note that
-\texttt{string\_to\_int} here operates on the full hash output
-(\texttt{hLen} = 64 bytes); the modular reduction ensures a near-uniform
-distribution over \(\bold{F}\).
+\section{Appendix B. Behavior with Zero I/O
+Pairs}\label{appendix-b.-behavior-with-zero-io-pairs}
 
-\section{Appendix B. Test Vectors}\label{appendix-b.-test-vectors}
+When \(n = 0\) no VRF output can be derived, since there are no output
+points to hash. The proof-of-knowledge component, however, remains sound
+in all schemes: a valid proof still requires knowledge of the secret key
+\(x\).
 
-\textbf{TODO}: The test vectors below are stale and must be regenerated
-after the nonce procedure change (section 1.9) is applied to the
-reference implementation.
+\begin{itemize}
+\item
+  \textbf{IETF VRF and Thin VRF}: Both schemes prepend the Schnorr pair
+  \((G, Y)\) to the I/O list before delinearization (sections 2.1 and
+  3.1, step 2), so the internal pair count is at least 1 regardless of
+  the user-supplied \(n\). With zero VRF pairs, the scheme degenerates
+  to a Schnorr signature on the additional data \(ad\), proving
+  knowledge of \(x\) for public key \(Y\).
+\item
+  \textbf{Pedersen VRF}: No Schnorr pair is prepended, so with \(n = 0\)
+  the \(\texttt{delinearize}\) procedure (section 1.6.4) sets the merged
+  pair to the identity: \((I_m, O_m) = (\mathcal{O}, \mathcal{O})\). The
+  VRF output check \(O_k + c \cdot O_m = s \cdot I_m\) is vacuously
+  satisfied (\(\mathcal{O} = \mathcal{O}\)), but the commitment check
+  \(R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B\) still proves
+  knowledge of the Pedersen commitment opening \((x, b)\).
+\end{itemize}
+
+\section{Appendix C. Test Vectors}\label{appendix-c.-test-vectors}
 
 The test vectors in this section were generated using \texttt{ark-vrf}
-libraries revision
-\href{https://github.com/davxy/ark-vrf/tree/bf2d1cf8ec648cf57b0eb1252639798481e05a29}{\texttt{bf2d1cf}}.
+libraries revision \texttt{c01eee3}.
 
-\subsection{B.1. IETF VRF Test
-Vectors}\label{b.1.-ietf-vrf-test-vectors}
+\subsection{C.1. IETF VRF Test
+Vectors}\label{c.1.-ietf-vrf-test-vectors}
 
 Schema:
 
@@ -939,123 +1539,229 @@ proof_s: Proof 's' component,
 vector-1}\label{bandersnatch_sha-512_ell2_ietf---vector-1}
 
 \begin{verbatim}
-3d6406500d4009fdf2604546093665911e753f2213570a29521fd88bc30ede18,
-a1b1da71cc4682e159b7da23050d8b6261eb11a3247c89b07ef56ccd002fd38b,
+02bc4e98404607ce56429007e6ec20a2c0cb2070fd77bb377d25c83afff4670c,
+05727c7bdb1a03a985bac26b26f4840730336e9f1aedcdc829e0e95ae5e80936,
 -,
 -,
--,
-c5eaf38334836d4b10e05d2c1021959a917e08eaf4eb46a8c4c8d1bec04e2c00,
-e7aa5154103450f0a0525a36a441f827296ee489ef30ed8787cff8df1bef223f,
-fdeb377a4ffd7f95ebe48e5b43a88d069ce62188e49493500315ad55ee04d744
-..2b93c4c91d5475370e9380496f4bc0b838c2483bce4e133c6f18b0adbb9e4722,
-439fd9495643314fa623f2581f4b3d7d6037394468084f4ad7d8031479d9d101,
-828bedd2ad95380b11f67a05ea0a76f0c3fef2bee9f043f4dffdddde09f55c01,
+9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
+45ee3e316c29dc0d5c2490ad14f4c1ebafbedf897d3663406e08acaef865a586,
+b963d3ab9dd2e29a172aee407cb18def053e08d43d6b50bf04544c448a3edcd6,
+6032c5002f9cb3ccda4f29086798bacf,
+2fa2c286ff35bd29bc2c5f7f7fa5c4032766ca4e95874b14b1624e88b223ff08,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ietf -
 vector-2}\label{bandersnatch_sha-512_ell2_ietf---vector-2}
 
 \begin{verbatim}
-8b9063872331dda4c3c282f7d813fb3c13e7339b7dc9635fdc764e32cc57cb15,
-5ebfe047f421e1a3e1d9bbb163839812657bbb3e4ffe9856a725b2b405844cf3,
+c5410a37c4dac5e7a0f02c2df9073a70b8c16d9c786c054b70f7502741c64f14,
+dc9f6c647b3fe0b3248d6afb2d305d75b421b9e697e0eaff913e59dae68a76cc,
 0a,
 -,
--,
-8c1d1425374f01d86b23bfeab770c60b58d2eeb9afc5900c8b8a918d09a6086b,
-60f32f5ad3e9694b82ccc0a735edb2f940f757ab333cc5f7b0a41158b80f574f,
-44f3728bc5ad550aeeb89f8db340b2fceffc946be3e2d8c5d99b47c1fce344b3
-..c7fcee223a9b29a64fe4a86a9994784bc165bb0fba03ca0a493f75bee89a0946,
-8aa1c755a00a6a25bdecda197ee1b60a01e50787bd10aa976133f4c39179330e,
-18c74ffd67e6abc658e2d05ecd3101ddc0c33623823f2395538cf8d39e654f12,
+a208afb3b276ef91530ce906abe1e64917b612b6e062a0bb93090c77d9c5ba95,
+331bc541947a27c518a7101db25b20878bc075ccdbf15f22243d4b7cf87cd8bb,
+24884e2a38ba6a7bdd6016be94cf09bc26306c0d649c67d4ed5e3ecd07ed690d,
+8171a0d99191fb5fc2995421d3af66cc,
+e625c8bd52dddb57199521c1f13176b1765e163a89cbe874db23ce341d9b8601,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ietf -
 vector-3}\label{bandersnatch_sha-512_ell2_ietf---vector-3}
 
 \begin{verbatim}
-6db187202f69e627e432296ae1d0f166ae6ac3c1222585b6ceae80ea07670b14,
-9d97151298a5339866ddd3539d16696e19e6b68ac731562c807fe63a1ca49506,
--,
+783510ef50915b52075650aa994085d36d513e259115fa408ac67f1398814605,
+689ccd15496386db306024633493e60135a2673faad2b0b4140a4006537c71b8,
 -,
 0b8c,
-c5eaf38334836d4b10e05d2c1021959a917e08eaf4eb46a8c4c8d1bec04e2c00,
-67a348e256d908eb695d15ee0d869efef2bcf9f0fea646e788f967abbc0464dd,
-edde0178045133eb03ef4d1ad8b978a56ee80ec4eab8830d6bc6c08003138841
-..6657d3c449d9398cc4385d1c8a2bb19bcf61ff086e5a6c477a0302ce270d1abf,
-bea302339a84fba18480af6ddf9a198d9b7f8f5ec43c9d27fb7dbc4df94ce815,
-796107b6639c31ca33d42713ad858a50aadca197bf46dd12d07b09c5cc347509,
+9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
+28c86b6880842180b972a94696703d6b489f8f03a3c280d9d3047017380e0baa,
+1c8c9baf9d6b691be3db3302bd64c56880f9468bb4e98ffcb545a56876717fd3,
+10948ba42b50dabb71aff44868e7ef4f,
+67e5471d81aa5eaab68a89a93094b751f72f9834693cfc392aad75a7b71ac302,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ietf -
 vector-4}\label{bandersnatch_sha-512_ell2_ietf---vector-4}
 
 \begin{verbatim}
-b56cc204f1b6c2323709012cb16c72f3021035ce935fbe69b600a88d842c7407,
-dc2de7312c2850a9f6c103289c64fbd76e2ebd2fa8b5734708eb2c76c0fb2d99,
+ac162d824faac7fb45ffd6f52acc819537139a5a3027e16d2736b84e3904301c,
+566dd2374ae7621fb6910143f1f5fa91b7bfce2db27a731cf110a27309b94667,
 73616d706c65,
 -,
--,
-672e8c7a8e6d3eca67df38f11d50f3d7dbb26fa8e27565a5424e6f8ac4555dcc,
-4d3e0524fc59374f1fdad8e471c695469b45ecf69c1de85c6c1230e888dd4cbe,
-36127f8aee7c61048984f0a208bf6d334db9dacbeeeef9ff2d17117e81232832
-..1462eb3ef602f5911d77ab11f815eb4154ba95c934e414198ef000a61b4de31a,
-b72598f235145a377911caa794ba85820173c4c49b7be3b05d847b2c753e0311,
-e8e34ad3131388a88eb7f80bd874f3421c378d4ad45911c4bc16e4cdc17b5716,
+f534e99a16886cb60e3672a9bcd65b57ec8a76a3d3f005850e9b38ea17d81636,
+b7d8e88cdb0dfe99bba76e5693d4d562c7fa8cd06d84502582aea9f8ab0b0d8a,
+8f006754011b549653e3796fda62c5fd9d0d3c5913e1737fdb638e9bf53879d2,
+6d2f2bfb41fe81f77b2ee671cbe2183f,
+b5c4a230641cbbf0decb7d8d916b01e6d6db9cf0157104c2cf24a12829e7150b,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ietf -
 vector-5}\label{bandersnatch_sha-512_ell2_ietf---vector-5}
 
 \begin{verbatim}
-da36359bf1bfd1694d3ed359e7340bd02a6a5e54827d94db1384df29f5bdd302,
-decb0151cbeb49f76f10419ab6a96242bdc87baac8a474e5161123de4304ac29,
+9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
+0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
 42616e646572736e6174636820766563746f72,
 -,
--,
-4315192d2ce9e52ceb449a6b4da7f7e6636e53592c7f5e236763e21e9bac24c7,
-9508104b820469687488d83f729288d9f70fc0523318beff44a47da10d490b3c,
-4ee61f3c000544aa48c565e143e05c6501a623bdbf02a0a408b97433660b4907
-..715f75890cc0e45cdd7116e3da15b15c3c637782e8e05d05c0d5895e5fe583d1,
-ad6af59b4b84f18187c694ef374687d13517cb53508ff9dafa37d0c759e9601c,
-4c1269d9d161dabd082fc606af979eca7f6c3ab68e78261dc6fb9fbbb98c9704,
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
+2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
+a82255b6b29d70f2d024d90246212d6a,
+83c2b1baf0e8cd05386bc98a81c8dec06ad5e383940c593364b0b6de2fa9fd0d,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ietf -
 vector-6}\label{bandersnatch_sha-512_ell2_ietf---vector-6}
 
 \begin{verbatim}
-da36359bf1bfd1694d3ed359e7340bd02a6a5e54827d94db1384df29f5bdd302,
-decb0151cbeb49f76f10419ab6a96242bdc87baac8a474e5161123de4304ac29,
+9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
+0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
 42616e646572736e6174636820766563746f72,
--,
 1f42,
-4315192d2ce9e52ceb449a6b4da7f7e6636e53592c7f5e236763e21e9bac24c7,
-9508104b820469687488d83f729288d9f70fc0523318beff44a47da10d490b3c,
-4ee61f3c000544aa48c565e143e05c6501a623bdbf02a0a408b97433660b4907
-..715f75890cc0e45cdd7116e3da15b15c3c637782e8e05d05c0d5895e5fe583d1,
-2eedb708748f0667d339d69a74a354f8e8247df5c1db6b50f0fd7cd7866bfc16,
-ec65e768c28dd8a93e13684c7abe2ccd5d6ca3dedb6fbff214912d2a61daac19,
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
+2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
+1f00564908115c4162eead4136f371bb,
+b5d08cd00512786bccc3a87179b13382bfb44b371527fc42007fdbe44fcc1f01,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ietf -
 vector-7}\label{bandersnatch_sha-512_ell2_ietf---vector-7}
 
 \begin{verbatim}
-35b877a25c394512292b82bdf8468e98eaf03c79c7fc9d53546dadc5fb75b500,
-b0e1f208f9d6e5b310b92014ea7ef3011e649dab038804759f3766e01029d623,
+76f8b81d866b4c8b89d1f7d40954c406ad3b6c33e2bb8ece9102d7a4f8483502,
+0384ac15569e3147105862c293863fa47aed4718b5fd791cc689fbfa7e8ce75c,
 42616e646572736e6174636820766563746f72,
--,
 1f42,
-4315192d2ce9e52ceb449a6b4da7f7e6636e53592c7f5e236763e21e9bac24c7,
-6d1dd583bea262323c7dc9e94e57a472e09874e435719010eeafae503c433f16,
-09106f062ac07846f3f841f64765527b333575143483855d633f99ccc2e8e306
-..e6239ff79a1272cff931e8d0ac6c390328486329118ad40a18b85184da1837ff,
-468158944f0dade1f553d46e1fb7da6ee8e38fbe923c3c270158e40f39d0c400,
-73024130df01e2bf80067bd837bfc3126f421ae8d99c7a9d7512060dfa359711,
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+a2332c9646371ec14e3ba6ac3ae8ea93a65159dec7dcd2e5c022e14bdf7395b3,
+26ea4ea18ba21e48b1c0a658fc1a4600f21c6957f6cc85e1209e69b77dc1eab6,
+e6ff791f65e3f3b2cd502ebf75726c1a,
+77a4db336448448b3e611e37c01290dd08132d0263c67249a25f34d2e461f31c,
 \end{verbatim}
 
-\subsection{B.2. Pedersen VRF Test
-Vectors}\label{b.2.-pedersen-vrf-test-vectors}
+\subsection{C.2. Thin VRF Test
+Vectors}\label{c.2.-thin-vrf-test-vectors}
+
+\begin{verbatim}
+sk (x): Secret key,
+pk (Y): Public key,
+in (alpha): Input octet-string,
+ad: Additional data octet-string,
+h (I): VRF input point,
+gamma (O): VRF output point,
+out (beta): VRF output octet string,
+proof_r: Proof 'r' component,
+proof_s: Proof 's' component,
+\end{verbatim}
+
+\subsubsection{bandersnatch\_sha-512\_ell2\_thin -
+vector-1}\label{bandersnatch_sha-512_ell2_thin---vector-1}
+
+\begin{verbatim}
+02bc4e98404607ce56429007e6ec20a2c0cb2070fd77bb377d25c83afff4670c,
+05727c7bdb1a03a985bac26b26f4840730336e9f1aedcdc829e0e95ae5e80936,
+-,
+-,
+9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
+45ee3e316c29dc0d5c2490ad14f4c1ebafbedf897d3663406e08acaef865a586,
+b963d3ab9dd2e29a172aee407cb18def053e08d43d6b50bf04544c448a3edcd6,
+28ba4a40d25d6875c1e1ddb888a609156856a684513580a559496e21c9ea3cdf,
+41ac847238e6b2fff7b2b476ebbb6cd6f92b024bdfa5fe8aac85f1d4c64fe913,
+\end{verbatim}
+
+\subsubsection{bandersnatch\_sha-512\_ell2\_thin -
+vector-2}\label{bandersnatch_sha-512_ell2_thin---vector-2}
+
+\begin{verbatim}
+c5410a37c4dac5e7a0f02c2df9073a70b8c16d9c786c054b70f7502741c64f14,
+dc9f6c647b3fe0b3248d6afb2d305d75b421b9e697e0eaff913e59dae68a76cc,
+0a,
+-,
+a208afb3b276ef91530ce906abe1e64917b612b6e062a0bb93090c77d9c5ba95,
+331bc541947a27c518a7101db25b20878bc075ccdbf15f22243d4b7cf87cd8bb,
+24884e2a38ba6a7bdd6016be94cf09bc26306c0d649c67d4ed5e3ecd07ed690d,
+4bbffe40e38b580372cc5dc1bfed6da3f0cbf2ff8a8058a2e0b840cffae18947,
+459d5f7739b629ae8717ded2a072ec12573c0224b1197a4cb09286cb3977e51a,
+\end{verbatim}
+
+\subsubsection{bandersnatch\_sha-512\_ell2\_thin -
+vector-3}\label{bandersnatch_sha-512_ell2_thin---vector-3}
+
+\begin{verbatim}
+783510ef50915b52075650aa994085d36d513e259115fa408ac67f1398814605,
+689ccd15496386db306024633493e60135a2673faad2b0b4140a4006537c71b8,
+-,
+0b8c,
+9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
+28c86b6880842180b972a94696703d6b489f8f03a3c280d9d3047017380e0baa,
+1c8c9baf9d6b691be3db3302bd64c56880f9468bb4e98ffcb545a56876717fd3,
+480a2cc4b53dafd3c0f65d70c9c5dac6edb7013a81ea6516987ac38743942cf3,
+0db4d5d1f6d98ec4deaf4768d5c457c57942210f422e7f3c4af167cf9e9e3a03,
+\end{verbatim}
+
+\subsubsection{bandersnatch\_sha-512\_ell2\_thin -
+vector-4}\label{bandersnatch_sha-512_ell2_thin---vector-4}
+
+\begin{verbatim}
+ac162d824faac7fb45ffd6f52acc819537139a5a3027e16d2736b84e3904301c,
+566dd2374ae7621fb6910143f1f5fa91b7bfce2db27a731cf110a27309b94667,
+73616d706c65,
+-,
+f534e99a16886cb60e3672a9bcd65b57ec8a76a3d3f005850e9b38ea17d81636,
+b7d8e88cdb0dfe99bba76e5693d4d562c7fa8cd06d84502582aea9f8ab0b0d8a,
+8f006754011b549653e3796fda62c5fd9d0d3c5913e1737fdb638e9bf53879d2,
+41b292967fe1bf7ba1edc8d33f65daf7013f78b5aaa4767ec26de9d1b969998a,
+82bbd8b4649d092c2d5ecd2363e68fb80547ba6db8f7d4f23872c0fe2f9be90f,
+\end{verbatim}
+
+\subsubsection{bandersnatch\_sha-512\_ell2\_thin -
+vector-5}\label{bandersnatch_sha-512_ell2_thin---vector-5}
+
+\begin{verbatim}
+9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
+0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
+42616e646572736e6174636820766563746f72,
+-,
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
+2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
+faca93b4f00ef37596bff4f7f23d33621cf6d75df7b4dc91615cdafb7eb8a843,
+10e5943fcd69f3f470e3de7ea2edea41ce192255709048d6a3178ea17556c61b,
+\end{verbatim}
+
+\subsubsection{bandersnatch\_sha-512\_ell2\_thin -
+vector-6}\label{bandersnatch_sha-512_ell2_thin---vector-6}
+
+\begin{verbatim}
+9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
+0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
+42616e646572736e6174636820766563746f72,
+1f42,
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
+2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
+c283cb32a074b3b5852dd7ed3ab23615702795a566c7eb38298eb411fce81b17,
+349df96ce2eb8f99d09c26ebcf872e82bbebb77d3f1fb75d2b02accb195ba203,
+\end{verbatim}
+
+\subsubsection{bandersnatch\_sha-512\_ell2\_thin -
+vector-7}\label{bandersnatch_sha-512_ell2_thin---vector-7}
+
+\begin{verbatim}
+76f8b81d866b4c8b89d1f7d40954c406ad3b6c33e2bb8ece9102d7a4f8483502,
+0384ac15569e3147105862c293863fa47aed4718b5fd791cc689fbfa7e8ce75c,
+42616e646572736e6174636820766563746f72,
+1f42,
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+a2332c9646371ec14e3ba6ac3ae8ea93a65159dec7dcd2e5c022e14bdf7395b3,
+26ea4ea18ba21e48b1c0a658fc1a4600f21c6957f6cc85e1209e69b77dc1eab6,
+5a1319f8558ef88c632439acc5420f6388378621b9a10bac5206f8e6283a46bf,
+9d2e74084ad6cf7b150b24955a4b7241be7d255221e366fae478556f16ec0419,
+\end{verbatim}
+
+\subsection{C.3. Pedersen VRF Test
+Vectors}\label{c.3.-pedersen-vrf-test-vectors}
 
 Schema:
 
@@ -1079,151 +1785,137 @@ proof_sb: Proof 's_b' component
 vector-1}\label{bandersnatch_sha-512_ell2_pedersen---vector-1}
 
 \begin{verbatim}
-3d6406500d4009fdf2604546093665911e753f2213570a29521fd88bc30ede18,
-a1b1da71cc4682e159b7da23050d8b6261eb11a3247c89b07ef56ccd002fd38b,
+02bc4e98404607ce56429007e6ec20a2c0cb2070fd77bb377d25c83afff4670c,
+05727c7bdb1a03a985bac26b26f4840730336e9f1aedcdc829e0e95ae5e80936,
 -,
 -,
--,
-c5eaf38334836d4b10e05d2c1021959a917e08eaf4eb46a8c4c8d1bec04e2c00,
-e7aa5154103450f0a0525a36a441f827296ee489ef30ed8787cff8df1bef223f,
-fdeb377a4ffd7f95ebe48e5b43a88d069ce62188e49493500315ad55ee04d744
-..2b93c4c91d5475370e9380496f4bc0b838c2483bce4e133c6f18b0adbb9e4722,
-01371ac62e04d1faaadbebaa686aaf122143e2cda23aacbaa4796d206779a501,
-3b21abd58807bb6d93797001adaacd7113ec320dcf32d1226494e18a57931fc4,
-c815d32540ec86fb96cbf69cc3f0c43a7fb144dd21f6069edc98cd4015f2b6d5,
-d063f1434d6282fd31182c18302e8e5755b71921d4f503a5fe8a52f643b9f26e,
-e5cedc671a42098f57816dbb324ec38a87a54f4b00972e357423f5db03354f13,
-2561a685afff7047cfdd65afa1a9a92d29dad245da838b05268f88605ab4fa19,
+9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
+45ee3e316c29dc0d5c2490ad14f4c1ebafbedf897d3663406e08acaef865a586,
+b963d3ab9dd2e29a172aee407cb18def053e08d43d6b50bf04544c448a3edcd6,
+3baa48811921cfb4b2bc2e4497128c3c22b13610b2ed527a075accab12834c18,
+bba78d0da7a17192a42a1dbfee6053c680132082201e30d616a203a58c9631e5,
+aaf19cdd5b9ae62dc329da51b06a248d3aaf38fb9b0230d663f60e5055015aef,
+41efcf83c7f272a517a57b378c9b01bf50ba58ec543411c4a51575a0127fa343,
+3db2b35a14d42898b779a651e6278c0f4b46172dee6cf1460e659dcd3ab7ea0e,
+09b2535caa7cacfee6c75a56728e8ecb745c09f4a1bbbd1036aeee11548e1213,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_pedersen -
 vector-2}\label{bandersnatch_sha-512_ell2_pedersen---vector-2}
 
 \begin{verbatim}
-8b9063872331dda4c3c282f7d813fb3c13e7339b7dc9635fdc764e32cc57cb15,
-5ebfe047f421e1a3e1d9bbb163839812657bbb3e4ffe9856a725b2b405844cf3,
+c5410a37c4dac5e7a0f02c2df9073a70b8c16d9c786c054b70f7502741c64f14,
+dc9f6c647b3fe0b3248d6afb2d305d75b421b9e697e0eaff913e59dae68a76cc,
 0a,
 -,
--,
-8c1d1425374f01d86b23bfeab770c60b58d2eeb9afc5900c8b8a918d09a6086b,
-60f32f5ad3e9694b82ccc0a735edb2f940f757ab333cc5f7b0a41158b80f574f,
-44f3728bc5ad550aeeb89f8db340b2fceffc946be3e2d8c5d99b47c1fce344b3
-..c7fcee223a9b29a64fe4a86a9994784bc165bb0fba03ca0a493f75bee89a0946,
-99ff52abf49d67c4303ac4a8a00984d04c06388f5f836ebd37031f0e76245815,
-c1322e7a65b83996c25e37a84e36598333b0d417619242c0cb3d9d972edde848,
-be11a18f9c700122f58123eced4d154e48fda19e6a15325aa5b40a6d88fabb09,
-0afe87e2c68e9127b4eaca7637e21e5208d648544d27029675dc1138df75ad2b,
-cb41e903a300f2bee6b4aa011598690225b41d66cef7b581022ca15307895a00,
-b72f3425d08c2afa3856821e3dab0051b342b0ca9a7b869ac593148087aa421a,
+a208afb3b276ef91530ce906abe1e64917b612b6e062a0bb93090c77d9c5ba95,
+331bc541947a27c518a7101db25b20878bc075ccdbf15f22243d4b7cf87cd8bb,
+24884e2a38ba6a7bdd6016be94cf09bc26306c0d649c67d4ed5e3ecd07ed690d,
+6e9876a539fbee1660541b328dbc76c421f2bb748d98f0e95aea4a38714c6b07,
+f09d813c81fc2785e4ef2c5fa56a330a9985bc6b37d1056e2e2a25ed9e0faa17,
+eefa655d3387ddad3df074aa3dce115500527169019274488308a9014b5a87e0,
+1a5c65ce69f362aa542321257c31f867b1cce2baae4c85ccd8b6c996ca5b3f07,
+4774cb236f639ec88560f9ccb66ec9ed08c8198dc6666abbfd80e83d7814e401,
+4fc0967d0fca2b73cafbb7bb3f66714d3dbaf463541966edf3a51f69d0b7961c,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_pedersen -
 vector-3}\label{bandersnatch_sha-512_ell2_pedersen---vector-3}
 
 \begin{verbatim}
-6db187202f69e627e432296ae1d0f166ae6ac3c1222585b6ceae80ea07670b14,
-9d97151298a5339866ddd3539d16696e19e6b68ac731562c807fe63a1ca49506,
--,
+783510ef50915b52075650aa994085d36d513e259115fa408ac67f1398814605,
+689ccd15496386db306024633493e60135a2673faad2b0b4140a4006537c71b8,
 -,
 0b8c,
-c5eaf38334836d4b10e05d2c1021959a917e08eaf4eb46a8c4c8d1bec04e2c00,
-67a348e256d908eb695d15ee0d869efef2bcf9f0fea646e788f967abbc0464dd,
-edde0178045133eb03ef4d1ad8b978a56ee80ec4eab8830d6bc6c08003138841
-..6657d3c449d9398cc4385d1c8a2bb19bcf61ff086e5a6c477a0302ce270d1abf,
-e22ec3e4a2a4132237eb8a62bcc5ed864593cfde08e53b1632ecd3245761c808,
-54c04f259f9e40ee086031d29960b12b6b6407e9de14985001c7265587941831,
-5c8684a01c32d61aaaa06caccbcb4ef6f65cff2a04a730c5b315597e9bb2bbab,
-7a6212e5b5a6e88cb3d9039e139383e354bf26c977708c55e1c481efed39ce8c,
-ce528e39121f18c22f6566523cb291a660a4e27ed8b94e9a45d93ed8109d7a0c,
-0fe94a883ade46d06ea5345c74d5e74c7f92bf822b57c92ccbb67faf4d12630f,
+9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
+28c86b6880842180b972a94696703d6b489f8f03a3c280d9d3047017380e0baa,
+1c8c9baf9d6b691be3db3302bd64c56880f9468bb4e98ffcb545a56876717fd3,
+9ac473260dea264e267010a99f9e7d21f7bd135015dd52568b6be2ee35da740d,
+45527e7dcab434dd93fce3fb996768a474210b9c529477c0b0b905272f813256,
+4acdf452a658bda69ab725eb38271ed0816853975aa7ed5b00e40996a61605ac,
+100001b838b68535c6dfeba23bec1ed0885dce43a8c424bb8be0e3c68cb1038e,
+d2b8cc54885d8c8e44c966eaca8b9ae9613823e3b9a3d1088573c504770c280c,
+c1f64ffcc8dcfc014d0982cd387ab730aa7c28a9c5e90e6b614b5de79e7fba0e,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_pedersen -
 vector-4}\label{bandersnatch_sha-512_ell2_pedersen---vector-4}
 
 \begin{verbatim}
-b56cc204f1b6c2323709012cb16c72f3021035ce935fbe69b600a88d842c7407,
-dc2de7312c2850a9f6c103289c64fbd76e2ebd2fa8b5734708eb2c76c0fb2d99,
+ac162d824faac7fb45ffd6f52acc819537139a5a3027e16d2736b84e3904301c,
+566dd2374ae7621fb6910143f1f5fa91b7bfce2db27a731cf110a27309b94667,
 73616d706c65,
 -,
--,
-672e8c7a8e6d3eca67df38f11d50f3d7dbb26fa8e27565a5424e6f8ac4555dcc,
-4d3e0524fc59374f1fdad8e471c695469b45ecf69c1de85c6c1230e888dd4cbe,
-36127f8aee7c61048984f0a208bf6d334db9dacbeeeef9ff2d17117e81232832
-..1462eb3ef602f5911d77ab11f815eb4154ba95c934e414198ef000a61b4de31a,
-755610da34cc224fbe60ce5e42add2ea6b272ef466aef18c13497363116d1c03,
-d26274e014ebfc19a9c1a951193858b972eae3360ed35635e89f1f9dbe432be5,
-10ccf14fd4dcbedb49f6b14a768237aff580284795545165f80249aee6ab0de2,
-574f7f2e6491d45b0176a704b31a95c7c37bdb45f4801e5c1d57d474682a96a0,
-4fad7e0faca61fd6008011cae0ae61e34eae8ba11373b487078ae030b4897c14,
-bf5f27de3b2d797155398204988f8c044ec827b609da165bb0b64142fca54d19,
+f534e99a16886cb60e3672a9bcd65b57ec8a76a3d3f005850e9b38ea17d81636,
+b7d8e88cdb0dfe99bba76e5693d4d562c7fa8cd06d84502582aea9f8ab0b0d8a,
+8f006754011b549653e3796fda62c5fd9d0d3c5913e1737fdb638e9bf53879d2,
+0d78247c984a435203f87c313dcc3cb30f98fe19ea1707a3f6c62213dd940314,
+d51c77c0b6d7777800a693417b07cff5ecf6107640a44f872266b9b7d646abae,
+7142c02e992a9f102529a981b07e033610147e17465849dd8f8a9db79b197e11,
+8e1edff94266aebe0de4abc4fcd8674b1e72dde659a80f633a541b6b6d5570bd,
+07886250014c2cac5bccd54d055e81b13c3bf166f2c0300a795ee0d7180c8d03,
+a319912ca8e7245e3130b6e22b87444e9d2c43e2baa84ea34dc253b6b324e213,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_pedersen -
 vector-5}\label{bandersnatch_sha-512_ell2_pedersen---vector-5}
 
 \begin{verbatim}
-da36359bf1bfd1694d3ed359e7340bd02a6a5e54827d94db1384df29f5bdd302,
-decb0151cbeb49f76f10419ab6a96242bdc87baac8a474e5161123de4304ac29,
+9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
+0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
 42616e646572736e6174636820766563746f72,
 -,
--,
-4315192d2ce9e52ceb449a6b4da7f7e6636e53592c7f5e236763e21e9bac24c7,
-9508104b820469687488d83f729288d9f70fc0523318beff44a47da10d490b3c,
-4ee61f3c000544aa48c565e143e05c6501a623bdbf02a0a408b97433660b4907
-..715f75890cc0e45cdd7116e3da15b15c3c637782e8e05d05c0d5895e5fe583d1,
-fb0123dd6317dbd379afccded247f75b3c1c2e32b86eaa9d6c9d0eb5bef07919,
-a91807f0ee57d2344a8942808bf35c65b5bd4fde16752a98f3e3dc67be8c103d,
-cf517b803df2d4dd811eddbf5182960bdd11b197df41d131d0962859363b540b,
-e170999eaae94e2de0ae5b32293fd4beb11a7f2f9191d7823ee40aa25cf03048,
-8faa55e1d69d353f0da6a6b276b0adfd23e3228f82490dd9c479e5bcffaba419,
-00c76bfa07e6603ca7dca3f11921f2852630b85a9539d49fe1d707b85c905f13,
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
+2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
+26922b938c71b84b655164000ce7fd03502101b127b588ce3e19e31ef8e98617,
+3ce1329adf9ed9d724a4b7d740b0e35148dc18fb556fba83f2d86eca6527f271,
+54794a95795e03575df38a2f799feade6a62bdd70abc743b976572cc0de1212e,
+8b9c1b24828e8dc990bb9578d18b2d88112019600d840d3ff536078ebcf64e99,
+cd541816013d05b8547e64f8ef9d0b0f41d506856e2fb89cc4bf099a31fd6003,
+bedd323e94fbddf14c55a2eb04c4e686c5fa32d06797065dee00720679c7be16,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_pedersen -
 vector-6}\label{bandersnatch_sha-512_ell2_pedersen---vector-6}
 
 \begin{verbatim}
-da36359bf1bfd1694d3ed359e7340bd02a6a5e54827d94db1384df29f5bdd302,
-decb0151cbeb49f76f10419ab6a96242bdc87baac8a474e5161123de4304ac29,
+9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
+0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
 42616e646572736e6174636820766563746f72,
--,
 1f42,
-4315192d2ce9e52ceb449a6b4da7f7e6636e53592c7f5e236763e21e9bac24c7,
-9508104b820469687488d83f729288d9f70fc0523318beff44a47da10d490b3c,
-4ee61f3c000544aa48c565e143e05c6501a623bdbf02a0a408b97433660b4907
-..715f75890cc0e45cdd7116e3da15b15c3c637782e8e05d05c0d5895e5fe583d1,
-0752c5b639dffedf9a66ac111a765d3e9c4cfac9c8b26cc5af6d524967afdf0a,
-d03caebf8577c1d2ed30a09708683195f11883411dc170e3ea9f09a2cbf86bab,
-2dc6d9e2b9e016a5f27daa49d373f1274f164da88ac9f3088ba67b6332deca43,
-ff8c3c3fbeda625b2534b071cec8d14f1572f10b979b5d5139fb2687e42a541f,
-b398eba8be1819c798d0f69bc87be386c77426f1366c1aa1a291e8fae647b701,
-e5d0ab6f7325d25dbef4222392cb848851926a2a8234cd4bb4fc059fb119190b,
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
+2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
+e92c4361fa428aee820ffacd98b720902febe97edba1cfd865c96be4b30d6c0b,
+5e90ec844e6c487d42ea66f46d03e998d9352a3f18fa01d13f8907504070f389,
+f6cdc963a17fd2807b3bd3e638561c8a4c276d7009c227ddc56be12e997e0285,
+867275332775f5c505668e5503aadaa29ee4ba6aed58a8c63988f308bdbfa910,
+6d20d2c4ff7347c8fcd7628a94629374664ef99ef5ce185d6351d9b015cef502,
+010f092028ea81e258c2517c3a685fa7e4eb56404831fa08450d4d1e525d680b,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_pedersen -
 vector-7}\label{bandersnatch_sha-512_ell2_pedersen---vector-7}
 
 \begin{verbatim}
-35b877a25c394512292b82bdf8468e98eaf03c79c7fc9d53546dadc5fb75b500,
-b0e1f208f9d6e5b310b92014ea7ef3011e649dab038804759f3766e01029d623,
+76f8b81d866b4c8b89d1f7d40954c406ad3b6c33e2bb8ece9102d7a4f8483502,
+0384ac15569e3147105862c293863fa47aed4718b5fd791cc689fbfa7e8ce75c,
 42616e646572736e6174636820766563746f72,
--,
 1f42,
-4315192d2ce9e52ceb449a6b4da7f7e6636e53592c7f5e236763e21e9bac24c7,
-6d1dd583bea262323c7dc9e94e57a472e09874e435719010eeafae503c433f16,
-09106f062ac07846f3f841f64765527b333575143483855d633f99ccc2e8e306
-..e6239ff79a1272cff931e8d0ac6c390328486329118ad40a18b85184da1837ff,
-462ae9ad651e5caf11247b989fecb5f2b1729479c33b9133388d14fa35dbbd0c,
-91f1ca92eeaa0b604faf3e4811c12b44991ea33cf582a529a4bc4429a3b6cc5a,
-2dce0eb9684582fbb5b9e9534811f2fff76ff4e63b446f82f8f53a535eb0021a,
-1962ce1b62aaec76bd34822f86e8146dff613fdb6d879ccc04860017d08e5adb,
-b302aca865948a67603c6eb159f0af27a901159bd6e22f82c30b048a0d806703,
-ec440f25b481ac453c9c9efa59c5a9cd9253204f14af41d272673147f02ad40f,
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+a2332c9646371ec14e3ba6ac3ae8ea93a65159dec7dcd2e5c022e14bdf7395b3,
+26ea4ea18ba21e48b1c0a658fc1a4600f21c6957f6cc85e1209e69b77dc1eab6,
+f67e235556416f9c25dfd7cb5a20e604b61a33873fd45a5e49859c637097e515,
+2f66b036b6b94aeb23ca08f973de9975be8e3ef70c04a02ee7b774ec0aacf68b,
+f5a2c3b55fdbde96f666bfa678c1e61c3c286d0ea340753ba47e345c1bef42a4,
+4d763f0e68dad33df0793d563927e3be54bbc5a3a14c1aebe53b5376d1420e12,
+17e28d896b23033642617a170c17f442ec5ee1a38d7957970b352fe7837e8f0b,
+c74fa25391398ed8aed9260de6774d8a84fa7e496be2fa71cc07c2521129d60f,
 \end{verbatim}
 
-\subsection{B.3. Ring VRF Test
-Vectors}\label{b.3.-ring-vrf-test-vectors}
+\subsection{C.4. Ring VRF Test
+Vectors}\label{c.4.-ring-vrf-test-vectors}
 
 KZG SRS parameters are derived from Zcash BLS12-381
 \href{https://zfnd.org/conclusion-of-the-powers-of-tau-ceremony}{powers
@@ -1258,371 +1950,357 @@ ring_proof: Ring proof
 vector-1}\label{bandersnatch_sha-512_ell2_ring---vector-1}
 
 \begin{verbatim}
-3d6406500d4009fdf2604546093665911e753f2213570a29521fd88bc30ede18,
-a1b1da71cc4682e159b7da23050d8b6261eb11a3247c89b07ef56ccd002fd38b,
+02bc4e98404607ce56429007e6ec20a2c0cb2070fd77bb377d25c83afff4670c,
+05727c7bdb1a03a985bac26b26f4840730336e9f1aedcdc829e0e95ae5e80936,
 -,
 -,
--,
-c5eaf38334836d4b10e05d2c1021959a917e08eaf4eb46a8c4c8d1bec04e2c00,
-e7aa5154103450f0a0525a36a441f827296ee489ef30ed8787cff8df1bef223f,
-fdeb377a4ffd7f95ebe48e5b43a88d069ce62188e49493500315ad55ee04d744
-..2b93c4c91d5475370e9380496f4bc0b838c2483bce4e133c6f18b0adbb9e4722,
-01371ac62e04d1faaadbebaa686aaf122143e2cda23aacbaa4796d206779a501,
-3b21abd58807bb6d93797001adaacd7113ec320dcf32d1226494e18a57931fc4,
-c815d32540ec86fb96cbf69cc3f0c43a7fb144dd21f6069edc98cd4015f2b6d5,
-d063f1434d6282fd31182c18302e8e5755b71921d4f503a5fe8a52f643b9f26e,
-e5cedc671a42098f57816dbb324ec38a87a54f4b00972e357423f5db03354f13,
-2561a685afff7047cfdd65afa1a9a92d29dad245da838b05268f88605ab4fa19,
-7b32d917d5aa771d493c47b0e096886827cd056c82dbdba19e60baa8b2c60313
-..d3b1bdb321123449c6e89d310bc6b7f654315eb471c84778353ce08b951ad471
-..561fdb0dcfb8bd443718b942f82fe717238cbcf8d12b8d22861c8a09a984a3c5
-..a1b1da71cc4682e159b7da23050d8b6261eb11a3247c89b07ef56ccd002fd38b
-..4fd11f89c2a1aaefe856bb1c5d4a1fad73f4de5e41804ca2c17ba26d6e10050c
-..86d06ee2c70da6cf2da2a828d8a9d8ef755ad6e580e838359a10accb086ae437
-..ad6fdeda0dde0a57c51d3226b87e3795e6474393772da46101fd597fbd456c1b
-..3f9dc0c4f67f207974123830c2d66988fb3fb44becbbba5a64143f376edc51d9,
-afd34e92148ec643fbb578f0e14a1ca9369d3e96b821fcc811c745c320fe2264
-..172545ca9b6b1d8a196734bc864e171484f45ba5b95d9be39f03214b59520af3
-..137ea80e302730a5df8e4155003414f6dcf0523d15c6ef5089806e1e8e5782be
+9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
+45ee3e316c29dc0d5c2490ad14f4c1ebafbedf897d3663406e08acaef865a586,
+b963d3ab9dd2e29a172aee407cb18def053e08d43d6b50bf04544c448a3edcd6,
+3baa48811921cfb4b2bc2e4497128c3c22b13610b2ed527a075accab12834c18,
+bba78d0da7a17192a42a1dbfee6053c680132082201e30d616a203a58c9631e5,
+aaf19cdd5b9ae62dc329da51b06a248d3aaf38fb9b0230d663f60e5055015aef,
+41efcf83c7f272a517a57b378c9b01bf50ba58ec543411c4a51575a0127fa343,
+3db2b35a14d42898b779a651e6278c0f4b46172dee6cf1460e659dcd3ab7ea0e,
+09b2535caa7cacfee6c75a56728e8ecb745c09f4a1bbbd1036aeee11548e1213,
+8b3031022897595ba3a280d6af047a46498f6fbfd62081d1df6a2e4b713014df
+..bd7fcb7c0956648c043bc345a8fb3e1a2c73815bf87f6c3cb985a00c9e95e991
+..307d3bef5e82f857b97f987da190e5fc6d77a9d24ac2068b701df1ab0487a1d8
+..05727c7bdb1a03a985bac26b26f4840730336e9f1aedcdc829e0e95ae5e80936
+..72ce1e7899c633b92709702bdfbe74347d9bdcd1ad62b13f960ade3d1df899b3
+..73154c7a701d5d6d38216c4be09800c024c35e4739e43f2b7aa5e0b55a281757
+..a4cc78b2e3eb6a19a777ff20bb801c043f73d836aab81038e286560e260922b4
+..0c5335e7855f8a38e9ffada8eadb2415f82b5822319fa53b66ef1c0469048ec3,
+b401855f407196cec76b6c590dc71bea696e51cbc5ccb8e6f1b1401ebcaf183d
+..76fa505cc4345333694f2107d450e94fac4f3451c8d4e88c406dbc452f4ff4d4
+..7b7391b57008e7f29a36cf7deaddd4307a03380b5130334d95ac1f87d7b2b8f1
 ..92e630ae2b14e758ab0960e372172203f4c9a41777dadd529971d7ab9d23ab29
 ..fe0e9c85ec450505dde7f5ac038274cf,
-98bc465cdf55ee0799bc25a80724d02bb2471cd7d065d9bd53a3a7e3416051f6
-..e3686f7c6464c364b9f2b0f15750426a9107bd20fe94a01157764aab5f300d7e
+95b258ec27b2ed9a87c301b79da6560a940f7d6d45930473db28c916b3e88413
+..565d40fbd827f1dbef670d12f18c86519107bd20fe94a01157764aab5f300d7e
 ..2fcba2178cb80851890a656d89550d0bebf60cca8c23575011d2f37cdc06dcdd
-..93818c0c1c3bff5a793d026c604294d0bbd940ec5f1c652bb37dc47564d71dd1
-..aa05aba41d1f0cb7f4442a88d9b533ba8e4788f711abdf7275be66d45d222dde
-..988dedd0cb5b0d36b21ee64e5ef94e26017b674e387baf0f2d8bd04ac6faab05
-..7510b4797248e0cb57e03db0199cd77373ee56adb7555928c391de794a07a613
-..f7daac3fc77ff7e7574eaeb0e1a09743c4dae2b420ba59cf40eb0445e41ffb24
-..49021976970c858153505b20ac237bfca469d8b998fc928e9db39a94e2df1740
-..ae0bad6f5d8656806ba24a2f9b89f7a4a9caef4e3ff01fec5982af8731433463
-..62a0eb9bb2f6375496ff9388639c7ffeb0bcee33769616e4878fc2315a3ac351
-..8a9da3c4f072e0a0b583436a58524f036c3a1eeca023598682f1132485d3a570
-..88b63acd86c6c72288568db71ff15b7677bfe7218acdebb144a2bf261eb4f659
-..80f830e77f37c4f8d11eac9321f302a089698f3c0079c41979d278e8432405fc
-..14d80aad028f79b0c4c626e4d4ac4e643692a9adfdc9ba2685a6c47eef0af5c8
-..f5d776083895e3e01f1f944cd7547542b7e64b870b1423857f6362533f7cd2a0
-..1d231ffed60fe26169c28b28ace1a307fdc8d4b29f0b44659402d3d455d719d8
-..96f83b7ee927f0652ca883e4cfa85a2f4f7bc60dda1b068092923076893db5bd
-..477fa2d26173314d7512760521d6ec9f,
+..870f9d86ed2d5c46ef71043f844d0a961b222785d2ffa76f6e4c74837c14fd57
+..728f70ec0d732ec04c3e0ae7416f2f0a8ebbabf471c8fce178f72a8128addb59
+..a4ca61e6cf331da22af57ce69c6da646274b02c20ad451983080798b97adf488
+..e8584a18f1b121feaa9ffebfb75aa10fc2742b9144d6b374d228b01888ec9715
+..3849fefc97b02f473bc56327b39abe990c623980e901e5646542c6c00d013215
+..379e965632b83010e0c01c779df60dc3f6161a73df92754a31393a466c980b53
+..ab8f0e80fdab4f91055762afcce5405c5592594838a959df7e7bdf601aedbe15
+..b153ab818fb80646834de7157988fe240544dd2bbe7d5051f8b047500aaf2706
+..4f09adab4445dd10ad3a9fa2ae619ace5f4d41b4d8f3b37892d280ff5182b447
+..bc1e33a42d2ac7affe8bfb3cfd8e09bed824832f23cc44b840141312bc8bee58
+..88b9c680dd5695c592b8ac3ad93e518ec17811e80191c8a63d5d6c506508d77b
+..7aee157a9e93ff693d19912f470e5e05dba2be49a180eadbb7071dc3846777dc
+..d2ff1bb44b7e48e65d1893cfa34aa16c82ea85c305f7941711a2a466946e13b5
+..05c472bd1b8299e2f70d864a5c76000e1f9f5bd36b622f0f4fb4dc7bab87b7c3
+..95db5288f2db3e004600ec1d4252ea477fccdfb67dd5eee658af784de3e4ebea
+..138b33e46287cab03b7886c7b836963f,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ring -
 vector-2}\label{bandersnatch_sha-512_ell2_ring---vector-2}
 
 \begin{verbatim}
-8b9063872331dda4c3c282f7d813fb3c13e7339b7dc9635fdc764e32cc57cb15,
-5ebfe047f421e1a3e1d9bbb163839812657bbb3e4ffe9856a725b2b405844cf3,
+c5410a37c4dac5e7a0f02c2df9073a70b8c16d9c786c054b70f7502741c64f14,
+dc9f6c647b3fe0b3248d6afb2d305d75b421b9e697e0eaff913e59dae68a76cc,
 0a,
 -,
--,
-8c1d1425374f01d86b23bfeab770c60b58d2eeb9afc5900c8b8a918d09a6086b,
-60f32f5ad3e9694b82ccc0a735edb2f940f757ab333cc5f7b0a41158b80f574f,
-44f3728bc5ad550aeeb89f8db340b2fceffc946be3e2d8c5d99b47c1fce344b3
-..c7fcee223a9b29a64fe4a86a9994784bc165bb0fba03ca0a493f75bee89a0946,
-99ff52abf49d67c4303ac4a8a00984d04c06388f5f836ebd37031f0e76245815,
-c1322e7a65b83996c25e37a84e36598333b0d417619242c0cb3d9d972edde848,
-be11a18f9c700122f58123eced4d154e48fda19e6a15325aa5b40a6d88fabb09,
-0afe87e2c68e9127b4eaca7637e21e5208d648544d27029675dc1138df75ad2b,
-cb41e903a300f2bee6b4aa011598690225b41d66cef7b581022ca15307895a00,
-b72f3425d08c2afa3856821e3dab0051b342b0ca9a7b869ac593148087aa421a,
-7b32d917d5aa771d493c47b0e096886827cd056c82dbdba19e60baa8b2c60313
-..d3b1bdb321123449c6e89d310bc6b7f654315eb471c84778353ce08b951ad471
-..561fdb0dcfb8bd443718b942f82fe717238cbcf8d12b8d22861c8a09a984a3c5
-..5ebfe047f421e1a3e1d9bbb163839812657bbb3e4ffe9856a725b2b405844cf3
-..4fd11f89c2a1aaefe856bb1c5d4a1fad73f4de5e41804ca2c17ba26d6e10050c
-..86d06ee2c70da6cf2da2a828d8a9d8ef755ad6e580e838359a10accb086ae437
-..ad6fdeda0dde0a57c51d3226b87e3795e6474393772da46101fd597fbd456c1b
-..3f9dc0c4f67f207974123830c2d66988fb3fb44becbbba5a64143f376edc51d9,
-81ff2ae0324ba81dbc5f511fadd27d6fa23ff83d45a84ea96ed82f09ad73114a
-..79349c978a86386c1a33c09f60c5362a99b73de3fe7f609d6f5f35736a6eb82c
-..739943ad4a3d1fe3f1b589d5b173ad3351786b08e07a1369f82fee25b4a16001
+a208afb3b276ef91530ce906abe1e64917b612b6e062a0bb93090c77d9c5ba95,
+331bc541947a27c518a7101db25b20878bc075ccdbf15f22243d4b7cf87cd8bb,
+24884e2a38ba6a7bdd6016be94cf09bc26306c0d649c67d4ed5e3ecd07ed690d,
+6e9876a539fbee1660541b328dbc76c421f2bb748d98f0e95aea4a38714c6b07,
+f09d813c81fc2785e4ef2c5fa56a330a9985bc6b37d1056e2e2a25ed9e0faa17,
+eefa655d3387ddad3df074aa3dce115500527169019274488308a9014b5a87e0,
+1a5c65ce69f362aa542321257c31f867b1cce2baae4c85ccd8b6c996ca5b3f07,
+4774cb236f639ec88560f9ccb66ec9ed08c8198dc6666abbfd80e83d7814e401,
+4fc0967d0fca2b73cafbb7bb3f66714d3dbaf463541966edf3a51f69d0b7961c,
+8b3031022897595ba3a280d6af047a46498f6fbfd62081d1df6a2e4b713014df
+..bd7fcb7c0956648c043bc345a8fb3e1a2c73815bf87f6c3cb985a00c9e95e991
+..307d3bef5e82f857b97f987da190e5fc6d77a9d24ac2068b701df1ab0487a1d8
+..dc9f6c647b3fe0b3248d6afb2d305d75b421b9e697e0eaff913e59dae68a76cc
+..72ce1e7899c633b92709702bdfbe74347d9bdcd1ad62b13f960ade3d1df899b3
+..73154c7a701d5d6d38216c4be09800c024c35e4739e43f2b7aa5e0b55a281757
+..a4cc78b2e3eb6a19a777ff20bb801c043f73d836aab81038e286560e260922b4
+..0c5335e7855f8a38e9ffada8eadb2415f82b5822319fa53b66ef1c0469048ec3,
+a9737168dba5216251d0d8441bb678fad4e07f2f1dc49cdcdf2c68132326ec95
+..d4818d3a1070717d86f8fa24c3bb0e73a4ebb67f21ce81738e570727795c4553
+..01653e09c298ee4807d32a4dd4622da1caaed3086894a449b8b179466a2f78e7
 ..92e630ae2b14e758ab0960e372172203f4c9a41777dadd529971d7ab9d23ab29
 ..fe0e9c85ec450505dde7f5ac038274cf,
-a57818b60d8fc54695a66b49a627b158a2f4141c696f0ac41b16831021e0ce56
-..04aaa76fab504c106e4a50621adcbeeb9107bd20fe94a01157764aab5f300d7e
+8407fcfc2c67217d296afcc7250c43d022679916c6ef97c3fc7c794a2708ac83
+..4cdbcead0ee3a5e778250ea0aa28bb679107bd20fe94a01157764aab5f300d7e
 ..2fcba2178cb80851890a656d89550d0bebf60cca8c23575011d2f37cdc06dcdd
-..a5d0e0b9c8dfabd2a88713ea7448a6afed58c035994f52a06a37045b7fe9bc88
-..00939475c3beae30ee28aabdb0932bacb7967c476a0b2aaa9bc536fd18b487a6
-..5135ae128d4c6fe14dc98160c841a9183ac4a31adf99ad98c4f18368eed0733b
-..7b5126d767299e72a086d9cd9fda84ef8392425404173b80a430a9b320c6cf46
-..f203e0b7214333ab49b43bd68bef7db51fd7d55f3332122aa7e65dd990eb5c36
-..fdef18cfe2ef8624e1372d4ae51fb115572e4a67ada192739a8eddfee2f88c53
-..e9072a320d73c78176f8572b8021f5aa2bfe82834b546cd93295bf05d7b6b81a
-..c56d1a3c8cdcccb575ef8e6865d0b45a2e684e3d03cdfe941d823450076a7229
-..fa17e1d1a92e8a4e12672837f603e0b782235fee0b4f3f2673972730c14e224f
-..0b6cd6e8a2e24358539a2cc242cf792d9b85cd784a6496192404c6ecc68ee370
-..b75f373ee9d9ba48a2de51d3b3f0a923a9385444eb6396f2ec220cefe3113bf2
-..08f2697fb1625da3c8d12e7ab8d405c8c05cc70074a7e2b76d73e9fc2e05e95b
-..303920abf93139baaadba3911e3d2d63ae5335a8be8fb028df0052aded98f2d8
-..1234fe608836b4896b2e080b9b9fa306be342e1aeb95368beb3099a97f2dd0c1
-..b10e54e38efb04c2b8977da7da8dfa801d6997de31337ea2c4ca2ddc77ad4356
-..6a614cc1742a24285ff9da590746aa6d,
+..8658cbda1a56b79bd5da30be2fb5d9af07972a56a2a7a141578d5ac72514061a
+..2781c83f24d9064d3384923fdbff78709464d871fefb06acfddbf2b8f15ed342
+..6fd3dd0f8adc3ad55bf9fdfbf8f9e3b8d78394a384733291df08a858e6cdddf2
+..066d561c7ae311b9b6f5ffa659afac7df16a88c7e955bc4662e9deec298ac703
+..58375652c6231760cbbd0f973cfd34d59aca627855b58945a662d74ce4fd0b55
+..0cec19e41a2eb6a53723a41e662c8ee6acff299b29bf297fadc2e3ce067a6617
+..f24de897276119a649ed740c02f1bf0b7746b13fe1dbfcd429a805b8e9199a69
+..c1e7b18570a0ce1a087d2dd91f4346da6f92a758ba429db8ee8fd6006e466372
+..e191627c6007950d91cdca0253d8c39361342176fc66495b713bebfad8fff11b
+..8456304fb5c44feba9318307edbf0c9a81be8bccf8a7f7b8aa5ae7bf420eb648
+..b41e31be788d3eee93654f76391ef566b8d906fc68f9b659a835658896a7dec4
+..2514ff52420505d3c155d945d4a01ffcb6eb3c081768863ca2e33ad3ff858a27
+..16edd6f497c2798e51729605c3d7701498924025465b94153552c3dfdfe11f69
+..e03efdf62e54d367f4b086fdeb70411c729a53ed3436f29b9924c8422d81b10e
+..99538490c3cdd1b150d6dae0c9c647dc0b2ed69a30134779b89114e1605d622d
+..aae5d8b8fba690997e9bc7e369ec05fa,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ring -
 vector-3}\label{bandersnatch_sha-512_ell2_ring---vector-3}
 
 \begin{verbatim}
-6db187202f69e627e432296ae1d0f166ae6ac3c1222585b6ceae80ea07670b14,
-9d97151298a5339866ddd3539d16696e19e6b68ac731562c807fe63a1ca49506,
--,
+783510ef50915b52075650aa994085d36d513e259115fa408ac67f1398814605,
+689ccd15496386db306024633493e60135a2673faad2b0b4140a4006537c71b8,
 -,
 0b8c,
-c5eaf38334836d4b10e05d2c1021959a917e08eaf4eb46a8c4c8d1bec04e2c00,
-67a348e256d908eb695d15ee0d869efef2bcf9f0fea646e788f967abbc0464dd,
-edde0178045133eb03ef4d1ad8b978a56ee80ec4eab8830d6bc6c08003138841
-..6657d3c449d9398cc4385d1c8a2bb19bcf61ff086e5a6c477a0302ce270d1abf,
-e22ec3e4a2a4132237eb8a62bcc5ed864593cfde08e53b1632ecd3245761c808,
-54c04f259f9e40ee086031d29960b12b6b6407e9de14985001c7265587941831,
-5c8684a01c32d61aaaa06caccbcb4ef6f65cff2a04a730c5b315597e9bb2bbab,
-7a6212e5b5a6e88cb3d9039e139383e354bf26c977708c55e1c481efed39ce8c,
-ce528e39121f18c22f6566523cb291a660a4e27ed8b94e9a45d93ed8109d7a0c,
-0fe94a883ade46d06ea5345c74d5e74c7f92bf822b57c92ccbb67faf4d12630f,
-7b32d917d5aa771d493c47b0e096886827cd056c82dbdba19e60baa8b2c60313
-..d3b1bdb321123449c6e89d310bc6b7f654315eb471c84778353ce08b951ad471
-..561fdb0dcfb8bd443718b942f82fe717238cbcf8d12b8d22861c8a09a984a3c5
-..9d97151298a5339866ddd3539d16696e19e6b68ac731562c807fe63a1ca49506
-..4fd11f89c2a1aaefe856bb1c5d4a1fad73f4de5e41804ca2c17ba26d6e10050c
-..86d06ee2c70da6cf2da2a828d8a9d8ef755ad6e580e838359a10accb086ae437
-..ad6fdeda0dde0a57c51d3226b87e3795e6474393772da46101fd597fbd456c1b
-..3f9dc0c4f67f207974123830c2d66988fb3fb44becbbba5a64143f376edc51d9,
-b2c08aa40031c9f2a66353b9f3b4e30440704e46f277167fc04fdb7812953cc6
-..bcbca4beb8288a2585a26d786c313c8699b0dd6b2e008ea7aa3b00c273da21ba
-..02bb6d51e39c8a2caf826bc2860d5b8e07b829647b1164c53ab307b9ca0c2bf5
+9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
+28c86b6880842180b972a94696703d6b489f8f03a3c280d9d3047017380e0baa,
+1c8c9baf9d6b691be3db3302bd64c56880f9468bb4e98ffcb545a56876717fd3,
+9ac473260dea264e267010a99f9e7d21f7bd135015dd52568b6be2ee35da740d,
+45527e7dcab434dd93fce3fb996768a474210b9c529477c0b0b905272f813256,
+4acdf452a658bda69ab725eb38271ed0816853975aa7ed5b00e40996a61605ac,
+100001b838b68535c6dfeba23bec1ed0885dce43a8c424bb8be0e3c68cb1038e,
+d2b8cc54885d8c8e44c966eaca8b9ae9613823e3b9a3d1088573c504770c280c,
+c1f64ffcc8dcfc014d0982cd387ab730aa7c28a9c5e90e6b614b5de79e7fba0e,
+8b3031022897595ba3a280d6af047a46498f6fbfd62081d1df6a2e4b713014df
+..bd7fcb7c0956648c043bc345a8fb3e1a2c73815bf87f6c3cb985a00c9e95e991
+..307d3bef5e82f857b97f987da190e5fc6d77a9d24ac2068b701df1ab0487a1d8
+..689ccd15496386db306024633493e60135a2673faad2b0b4140a4006537c71b8
+..72ce1e7899c633b92709702bdfbe74347d9bdcd1ad62b13f960ade3d1df899b3
+..73154c7a701d5d6d38216c4be09800c024c35e4739e43f2b7aa5e0b55a281757
+..a4cc78b2e3eb6a19a777ff20bb801c043f73d836aab81038e286560e260922b4
+..0c5335e7855f8a38e9ffada8eadb2415f82b5822319fa53b66ef1c0469048ec3,
+b587fc8452db2dab040f7e0ce6c89be2b39d3e584460a7427367d5d71f030b3b
+..c42cd74b6d19544b9d6ac677574cbd9cb64007d347b9f90a19e94f3e2402ce21
+..6cec8f85822d2c275d4aa97fdd6609463752fc36886c6afa91369a375c7443e7
 ..92e630ae2b14e758ab0960e372172203f4c9a41777dadd529971d7ab9d23ab29
 ..fe0e9c85ec450505dde7f5ac038274cf,
-a28c6420603f4cd2efd457092ef74585f78eeae389e2ffabf58b9f9dd14ec4db
-..9ffe14be02b7376f6ae7959e11ce1e559107bd20fe94a01157764aab5f300d7e
+920e0198311d84368a35db10aa11a9b3b4b1b46576e2301053b9eba4a79ef581
+..43726ffcef2c40cbe23d731aef19405b9107bd20fe94a01157764aab5f300d7e
 ..2fcba2178cb80851890a656d89550d0bebf60cca8c23575011d2f37cdc06dcdd
-..a06a150e462634cd8e2a43f4a377bf503f37896a5ff3994e5dfe0d76d7080cab
-..3c616ed081e9f13ba653904fce67a0e08476090b55153972ea2b7609d437cdee
-..cce2475bfd26aede213d5878a93ace5f99620bdabe5970d32feba4b425e600a8
-..f53b81887987ba0c9401bb8fd21d5219fc054674e8f6eea7824b5643e31d0d55
-..da7c33c6610cb183ed9fedca5321be353303da40b63bfc00719c8d253009520f
-..67a8f11107b915e404a4b3066632c858314a3c2de105cf69d4ca584ae02c3e4a
-..60829ae05278cfcd8854e1eff8af8a3bda9d92797d404578011368e726052e22
-..6ad658bafb6a5e5a51d1dd9ae7dc88598420f2d17146abd268471191dff53b6a
-..d7267bd8bd716c004d0984b4bdb4c5d5295abe978f53cd716a43777658fe9140
-..7c4e6f164ab9eb72050b7ab4845068ec48c4ef4933da4eb9f7bda8cbaee06d45
-..90d328064880d590e9cf3933d96a6c15d2f2cb1bb2d6247d522089587646f8de
-..386429e448d962155b5ebfcb4962e1ea3186608ce8a0928ae0eb90ebc38fac9e
-..0a78cf12d236efb73ecb943636ec911a8aed1c634ab079758eb1b68aaf765857
-..27dc23bc29c5e05797d7e1c0fc30a5eb00b0a323d8fe728072821dbf1c903394
-..932472e99a82bb70e69505a27ed9ace5862c1e247530904bef58d4ae28f9d8d8
-..2d61a5b7f8c92efeaaaccbe1ba0c9c97,
+..8ea1aca0088bf3b2cc56a1f9bb16c7f282d7fe7ffd96fe6dbb8b3f16cd9392bb
+..fa44cf48987c43d042d99bdf5e0e7214829eb8da35ddde985d6e1a081ff16112
+..e8f6ee0c2cfc9e90fc848d1cc7851004e5734ddf4ac16eb0f3650fc096e673f5
+..2ccd1c9dc58a4ee502a587b5cb5d9bcd9c2f0ce46a8c974a153048c342593772
+..c62c17fc562c7dd879605fbe02bb37005130b0b4f09fdd9e4a3cdc9118296e35
+..753ccbf75d9b319db28e6db54186f66d09a2cd53a0a69be774bb9aca73bacb5c
+..8bdedd4de42f9f94168ed3a1cdb29559bc17ff1810ff52bce6b25d05dab1e122
+..35d92acf8abb5247e828ab04588d975ff6e9baf9633751e17c295c378c11d003
+..b790b787ae919d1669c094e0ae917b4d8f5a2f1e711d96bdaa8db7f2b8276d36
+..b1a57266168d6e6a3bb11f2823689ebed001fa0dffb991b7247922e31a9e4006
+..b96d9369260bcba44f683441ab1142d0bdff47b56ff1550b5672f79dd576661b
+..ec2af6969760312e4b0ad73e00e1f1e2b5ca41a15eed5766384a56e7e58edf69
+..f462b1b9a6a7f7725bc59fe36351d64da33dc4567e5e83043c4211028abe6cb7
+..25ed0fe845cdec5a7018b975a3d675b3543fc04a7907359487a907a751be5bec
+..8e8433a3bc0d66d9217b1c2e4501f4ff1b6ed2954f99584de6bff104b957df1e
+..c122422adfce5e19f27253385f410ce3,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ring -
 vector-4}\label{bandersnatch_sha-512_ell2_ring---vector-4}
 
 \begin{verbatim}
-b56cc204f1b6c2323709012cb16c72f3021035ce935fbe69b600a88d842c7407,
-dc2de7312c2850a9f6c103289c64fbd76e2ebd2fa8b5734708eb2c76c0fb2d99,
+ac162d824faac7fb45ffd6f52acc819537139a5a3027e16d2736b84e3904301c,
+566dd2374ae7621fb6910143f1f5fa91b7bfce2db27a731cf110a27309b94667,
 73616d706c65,
 -,
--,
-672e8c7a8e6d3eca67df38f11d50f3d7dbb26fa8e27565a5424e6f8ac4555dcc,
-4d3e0524fc59374f1fdad8e471c695469b45ecf69c1de85c6c1230e888dd4cbe,
-36127f8aee7c61048984f0a208bf6d334db9dacbeeeef9ff2d17117e81232832
-..1462eb3ef602f5911d77ab11f815eb4154ba95c934e414198ef000a61b4de31a,
-755610da34cc224fbe60ce5e42add2ea6b272ef466aef18c13497363116d1c03,
-d26274e014ebfc19a9c1a951193858b972eae3360ed35635e89f1f9dbe432be5,
-10ccf14fd4dcbedb49f6b14a768237aff580284795545165f80249aee6ab0de2,
-574f7f2e6491d45b0176a704b31a95c7c37bdb45f4801e5c1d57d474682a96a0,
-4fad7e0faca61fd6008011cae0ae61e34eae8ba11373b487078ae030b4897c14,
-bf5f27de3b2d797155398204988f8c044ec827b609da165bb0b64142fca54d19,
-7b32d917d5aa771d493c47b0e096886827cd056c82dbdba19e60baa8b2c60313
-..d3b1bdb321123449c6e89d310bc6b7f654315eb471c84778353ce08b951ad471
-..561fdb0dcfb8bd443718b942f82fe717238cbcf8d12b8d22861c8a09a984a3c5
-..dc2de7312c2850a9f6c103289c64fbd76e2ebd2fa8b5734708eb2c76c0fb2d99
-..4fd11f89c2a1aaefe856bb1c5d4a1fad73f4de5e41804ca2c17ba26d6e10050c
-..86d06ee2c70da6cf2da2a828d8a9d8ef755ad6e580e838359a10accb086ae437
-..ad6fdeda0dde0a57c51d3226b87e3795e6474393772da46101fd597fbd456c1b
-..3f9dc0c4f67f207974123830c2d66988fb3fb44becbbba5a64143f376edc51d9,
-89804d665064e57f7de11fc3eeb50fcc7432972e344d14e9fe0f1c4a62ecb1a8
-..0bf0927ac19553787590c3a834feec1083c8f1104bb55779216dd5051aefe928
-..73b36f331309eaa429bb1bc14f8b31270964bdc061ae6c856e05b19117508112
+f534e99a16886cb60e3672a9bcd65b57ec8a76a3d3f005850e9b38ea17d81636,
+b7d8e88cdb0dfe99bba76e5693d4d562c7fa8cd06d84502582aea9f8ab0b0d8a,
+8f006754011b549653e3796fda62c5fd9d0d3c5913e1737fdb638e9bf53879d2,
+0d78247c984a435203f87c313dcc3cb30f98fe19ea1707a3f6c62213dd940314,
+d51c77c0b6d7777800a693417b07cff5ecf6107640a44f872266b9b7d646abae,
+7142c02e992a9f102529a981b07e033610147e17465849dd8f8a9db79b197e11,
+8e1edff94266aebe0de4abc4fcd8674b1e72dde659a80f633a541b6b6d5570bd,
+07886250014c2cac5bccd54d055e81b13c3bf166f2c0300a795ee0d7180c8d03,
+a319912ca8e7245e3130b6e22b87444e9d2c43e2baa84ea34dc253b6b324e213,
+8b3031022897595ba3a280d6af047a46498f6fbfd62081d1df6a2e4b713014df
+..bd7fcb7c0956648c043bc345a8fb3e1a2c73815bf87f6c3cb985a00c9e95e991
+..307d3bef5e82f857b97f987da190e5fc6d77a9d24ac2068b701df1ab0487a1d8
+..566dd2374ae7621fb6910143f1f5fa91b7bfce2db27a731cf110a27309b94667
+..72ce1e7899c633b92709702bdfbe74347d9bdcd1ad62b13f960ade3d1df899b3
+..73154c7a701d5d6d38216c4be09800c024c35e4739e43f2b7aa5e0b55a281757
+..a4cc78b2e3eb6a19a777ff20bb801c043f73d836aab81038e286560e260922b4
+..0c5335e7855f8a38e9ffada8eadb2415f82b5822319fa53b66ef1c0469048ec3,
+8cb872d59c5ee4e533b40fcc716092af6582109d7a0183b17b336abc537340cc
+..acba3a0b124fa009fad0f1f890409be8894cd4f5d91e6b331cec686be9b86784
+..90d992533388072fa898da191f7c1b8b45fd534223f243d571cdb80d5770dc8f
 ..92e630ae2b14e758ab0960e372172203f4c9a41777dadd529971d7ab9d23ab29
 ..fe0e9c85ec450505dde7f5ac038274cf,
-84c37dff677bda19d7ce202500196edeabb794b0e0970b52a76061d9fc9c396f
-..5d6671db8da091886f4f894775b49a549107bd20fe94a01157764aab5f300d7e
+b366dc29a580115ee67751e4c85b169ea4832f55e168ec6308efd1ff25d0f613
+..cd86c575aad8716d96f5521f15acdbf39107bd20fe94a01157764aab5f300d7e
 ..2fcba2178cb80851890a656d89550d0bebf60cca8c23575011d2f37cdc06dcdd
-..a8c53db306c4d0d30a509b2d3b48706279629cd604a3e220fdcd49c44876b6a0
-..455419b418f22b18969cec9423e540dd89dd715839826e4aede1002bb651de89
-..68c528cf5d2eb41f17e10494c89f3b475aedfbfd5b5de126f7f22c2fe83e2da0
-..0dc1af96ea799fe2dcbd9f0985bc69dc6ce5d23c8c51075af7aa2062927f4d73
-..b76d01e3ca5b67377c420afac1850d6e053114594e7680222b06c6d1ce239d13
-..e69c933daa0b6671896b92456a4856b9bf92dcca0329bd1743ee6dbf0912b347
-..7b1b03294a9b1553d7c79e6bc82448ee76f9dc8e9c869cca60346f0cc2700d20
-..0bec0aa5f9d4f1b91acc3d0e21456779b7a0abcb1a6e52e8126410131c63756c
-..2f161d49f441fdfaf719feeeedcd7b8c9f327eac0c279b42e251b71c104b280d
-..8d53a5dfd6be57c646fff62151f43372f768375472ea3bf5f23a23c040b4c26f
-..9460ee2b0f8b2c3946d8ce0909b80e7ee5608c1735ab06cc5bed2425fd823ce6
-..8938a4b576f245ad0fcab22a6609a9ebfc5c3716d67148dd570f64f2da5cde1f
-..801c0d421eb4f978026ff58aa8cb03118bd50badc10a9ac76c27579d7b074bff
-..cdfe592547df5db7b7cf36de8b7ac43ea2329196d2daef4faf01cafaf016f927
-..a376a1bcb5a8961c8135b8df70b98d34b6d32eade381a55595a3ba9a324d596b
-..5ea2a1f01565430d7ba3965ad07450c0,
+..97ffe13e501d54b33dcbbcb13862729586f430dd03c382aa91742d0e1f81b62d
+..30e5be3379ea488ce970510713fcca08b106ea47a709fe3d055cce53d1fece85
+..6709c0c2f1e34ff845e4bb9056db0526be9531134b37563aba7f4d8cc178c737
+..840d1bef277c946abbb2e6cdf1f17980a86f3baea16249e60e75247a2d140964
+..a4382e2006070440f8abcd052372a1a5bd17b3b63bb5419965af5589aaa34908
+..5b10f5308b51aa7927f048f3f8f0dd35e28e22ce3d426b68ca33b0ce0ebbc761
+..fe9c3ced5867e579abd8cd62125f31420f70b3a7bfcbbcf57e405fe0f491b621
+..74805c7be10b79c33cfdeb9778ef1b20fea34d7a80d179694d1bd61c1e351009
+..2fa950461560e73c138718955eeea49c41ef7c98479068443330337e90664d61
+..5d2b87d63063e3aab73d60bd803528e6b9fc5c8b9997d2326dbc86742826a344
+..84c781f1fb236b2ba258b305c63794fd6eb4e4ec3db4a31e67fb0e3aee89d4a0
+..858c8159381c2cad1ef56d018a7d72dbc85a3e049e01fda527bb533192e7a64a
+..bb065d195e2caaf285a12f80c20d264cafaa0ecd22a57a0403d112247daf9cca
+..47dbdb971c72788f561cc83976da04f1e3f66544bf47afa1eab80b2e6b33b71c
+..91f99b01705be9f0408274066fab8b8aee773577a316f76858ae59ca75b0db0e
+..2a90064290ecffd315ba64fb28b9e067,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ring -
 vector-5}\label{bandersnatch_sha-512_ell2_ring---vector-5}
 
 \begin{verbatim}
-da36359bf1bfd1694d3ed359e7340bd02a6a5e54827d94db1384df29f5bdd302,
-decb0151cbeb49f76f10419ab6a96242bdc87baac8a474e5161123de4304ac29,
+9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
+0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
 42616e646572736e6174636820766563746f72,
 -,
--,
-4315192d2ce9e52ceb449a6b4da7f7e6636e53592c7f5e236763e21e9bac24c7,
-9508104b820469687488d83f729288d9f70fc0523318beff44a47da10d490b3c,
-4ee61f3c000544aa48c565e143e05c6501a623bdbf02a0a408b97433660b4907
-..715f75890cc0e45cdd7116e3da15b15c3c637782e8e05d05c0d5895e5fe583d1,
-fb0123dd6317dbd379afccded247f75b3c1c2e32b86eaa9d6c9d0eb5bef07919,
-a91807f0ee57d2344a8942808bf35c65b5bd4fde16752a98f3e3dc67be8c103d,
-cf517b803df2d4dd811eddbf5182960bdd11b197df41d131d0962859363b540b,
-e170999eaae94e2de0ae5b32293fd4beb11a7f2f9191d7823ee40aa25cf03048,
-8faa55e1d69d353f0da6a6b276b0adfd23e3228f82490dd9c479e5bcffaba419,
-00c76bfa07e6603ca7dca3f11921f2852630b85a9539d49fe1d707b85c905f13,
-7b32d917d5aa771d493c47b0e096886827cd056c82dbdba19e60baa8b2c60313
-..d3b1bdb321123449c6e89d310bc6b7f654315eb471c84778353ce08b951ad471
-..561fdb0dcfb8bd443718b942f82fe717238cbcf8d12b8d22861c8a09a984a3c5
-..decb0151cbeb49f76f10419ab6a96242bdc87baac8a474e5161123de4304ac29
-..4fd11f89c2a1aaefe856bb1c5d4a1fad73f4de5e41804ca2c17ba26d6e10050c
-..86d06ee2c70da6cf2da2a828d8a9d8ef755ad6e580e838359a10accb086ae437
-..ad6fdeda0dde0a57c51d3226b87e3795e6474393772da46101fd597fbd456c1b
-..3f9dc0c4f67f207974123830c2d66988fb3fb44becbbba5a64143f376edc51d9,
-8a73624024659145d99046f7c25332c0427a1a419b90c9c31f11dcb43bfa5dea
-..85fe0551e6e344c777470a6a75665195980c655ed0b3fe459512a901981313ce
-..23003968a3487ea5b5de2f9f4372727ac137ab04fec24c03a4ebd77055851650
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
+2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
+26922b938c71b84b655164000ce7fd03502101b127b588ce3e19e31ef8e98617,
+3ce1329adf9ed9d724a4b7d740b0e35148dc18fb556fba83f2d86eca6527f271,
+54794a95795e03575df38a2f799feade6a62bdd70abc743b976572cc0de1212e,
+8b9c1b24828e8dc990bb9578d18b2d88112019600d840d3ff536078ebcf64e99,
+cd541816013d05b8547e64f8ef9d0b0f41d506856e2fb89cc4bf099a31fd6003,
+bedd323e94fbddf14c55a2eb04c4e686c5fa32d06797065dee00720679c7be16,
+8b3031022897595ba3a280d6af047a46498f6fbfd62081d1df6a2e4b713014df
+..bd7fcb7c0956648c043bc345a8fb3e1a2c73815bf87f6c3cb985a00c9e95e991
+..307d3bef5e82f857b97f987da190e5fc6d77a9d24ac2068b701df1ab0487a1d8
+..0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1
+..72ce1e7899c633b92709702bdfbe74347d9bdcd1ad62b13f960ade3d1df899b3
+..73154c7a701d5d6d38216c4be09800c024c35e4739e43f2b7aa5e0b55a281757
+..a4cc78b2e3eb6a19a777ff20bb801c043f73d836aab81038e286560e260922b4
+..0c5335e7855f8a38e9ffada8eadb2415f82b5822319fa53b66ef1c0469048ec3,
+89bd64badc4998bd91dc2eae3edd5e90e60ae6d3ee9722d43822c9653eb1c0dc
+..19d24533e761b39fa68e6ab92a3ccb79b7f681bde365bd3827eacc69dd8ed46e
+..fc530532b2110eb097360a6db718dd233580a7880a560d794dbf63c5fc146c6a
 ..92e630ae2b14e758ab0960e372172203f4c9a41777dadd529971d7ab9d23ab29
 ..fe0e9c85ec450505dde7f5ac038274cf,
-a7185a7a63812926137b53a4776569fe2323e84689e9e2523e03d3c61beb0427
-..7bde2c4a2a5e6acecbbfe1c09f16f9899107bd20fe94a01157764aab5f300d7e
+a42ac27fbd3e2a57863603b03ae5cdf313304212981574c50fa8e07082bfeaaa
+..1eb24f6b5cbe4b394bac56bf847558a79107bd20fe94a01157764aab5f300d7e
 ..2fcba2178cb80851890a656d89550d0bebf60cca8c23575011d2f37cdc06dcdd
-..b2c7a1bdeee0b96e5636a6bc0e91bf3a2309e9a396c1a079f1be004fb8f01c58
-..a559c750c46b100666e10f841924c3aaafcd90d79db59ea96d9f519cd23e85e1
-..498b18f2a1b5fde389db657178e77d55c946cfcc485343d2e14ed37fb5d39e7b
-..bbccea9103664414fe5eb0b4224721d790674a15b386d31f1d6b4ed8ccc74536
-..305372529273c12476382842eb14722352276ab05e1cdab867fe43b6da8d1149
-..41f5dd46bda9b29681e6210fbfba89c09e123ae6aa788845d4f87dbc42228b66
-..39a51dc61bc79ff3e53da217679648be2d6d4e4a0277d05afa98dd7378672337
-..3c3d8d4932f6258f174793f9597b9ef888e0e8bcb37ce0f79669411163c51570
-..e6ffd7afb89a3d8f43e1e9fdfce7c583c9a6bb32414c6787d83ad3d46812a43e
-..bf758c58417d169b0a8e7f08befd8beea50699e786f54037f8859c362a7b4a17
-..96c40e76ce0c05c0920f0d092c78123470cfc80e13198bca67c003bf554642fb
-..1cfecc2cc5c6a418a628e2d16152c8dadd9e069e3c3ee9f6715766760d4cdfab
-..d545348c67f22e576d6ab90184843e49989ff102693018ca1256aa1d20d73416
-..b6a2cf93aeaf2a985b109aef311e94f1b2b9951a341496a3584d386fe998b9ea
-..b014b5d452cf9489672089388ff5927e37593773ea18e316fd2bd0a8b0566f09
-..f7d36173103dc41ceb82e4dc9fcfc5f9,
+..8173c4b1dc29fcb6f996510f5bf6149c9a17e84bf10a48fe74aaa3d12907066d
+..77aa7e9b1aed7ae8b779f002189a4490b3f302ea4518fbe9a45c887d6985773a
+..b61acdae9a2192cdf14cb274f876fc262ff3439e7b3f011bc33a8058c6f193aa
+..93277e6061f6938ef9ed9b10aebe4a3e47897b489d687fc42525beb4e8c2d21b
+..3722a40dee65c20cd4da0c56267307ecfd1d34c34570ef3cca6180a41a32b810
+..4523ecbe2a277741e08e9c5a12282cbd1f80d1c72f50c332bf86d4cb83905a64
+..74b9a75ebfa4b836da18140ae779e75d4f530b7a4cc1b87e3517b1fd8a8ce969
+..7fdda8ea884eabfe0c7a9d7c229954f8b1948fc158cd7a2518db4e55d21c7a2d
+..55747650e4b1d98b16a9da6290f7913da415c71f7a3cdc3e1c83d57d7cf6d867
+..73d14e95272013a41d5e3bbf7551aa6fb9c56c45edda82ed4d07ae2b03ddfa2c
+..b051abc16e8efd62d569ee0cdef88a61067e2a1297de6b22a40bd782be1e9a33
+..8424362061c0c25d47cdc8c096046e0031b040af06031ec3496352555f1e0e3c
+..f6699ab72d136fec837c4684dcb51d5c92a0cbc94496ae8044fbb409cca0a8ed
+..e879ca16a81db941c376a13f9a6776b803f3e277a1fdbf8d133b0b4b88649bc3
+..897aa7d664109a5fce8517465a06eb9ca370a0c395def125abf3b2dd62997b4a
+..cd33e6dc8c16a4bbe6dc2f45d34386a9,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ring -
 vector-6}\label{bandersnatch_sha-512_ell2_ring---vector-6}
 
 \begin{verbatim}
-da36359bf1bfd1694d3ed359e7340bd02a6a5e54827d94db1384df29f5bdd302,
-decb0151cbeb49f76f10419ab6a96242bdc87baac8a474e5161123de4304ac29,
+9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
+0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
 42616e646572736e6174636820766563746f72,
--,
 1f42,
-4315192d2ce9e52ceb449a6b4da7f7e6636e53592c7f5e236763e21e9bac24c7,
-9508104b820469687488d83f729288d9f70fc0523318beff44a47da10d490b3c,
-4ee61f3c000544aa48c565e143e05c6501a623bdbf02a0a408b97433660b4907
-..715f75890cc0e45cdd7116e3da15b15c3c637782e8e05d05c0d5895e5fe583d1,
-0752c5b639dffedf9a66ac111a765d3e9c4cfac9c8b26cc5af6d524967afdf0a,
-d03caebf8577c1d2ed30a09708683195f11883411dc170e3ea9f09a2cbf86bab,
-2dc6d9e2b9e016a5f27daa49d373f1274f164da88ac9f3088ba67b6332deca43,
-ff8c3c3fbeda625b2534b071cec8d14f1572f10b979b5d5139fb2687e42a541f,
-b398eba8be1819c798d0f69bc87be386c77426f1366c1aa1a291e8fae647b701,
-e5d0ab6f7325d25dbef4222392cb848851926a2a8234cd4bb4fc059fb119190b,
-7b32d917d5aa771d493c47b0e096886827cd056c82dbdba19e60baa8b2c60313
-..d3b1bdb321123449c6e89d310bc6b7f654315eb471c84778353ce08b951ad471
-..561fdb0dcfb8bd443718b942f82fe717238cbcf8d12b8d22861c8a09a984a3c5
-..decb0151cbeb49f76f10419ab6a96242bdc87baac8a474e5161123de4304ac29
-..4fd11f89c2a1aaefe856bb1c5d4a1fad73f4de5e41804ca2c17ba26d6e10050c
-..86d06ee2c70da6cf2da2a828d8a9d8ef755ad6e580e838359a10accb086ae437
-..ad6fdeda0dde0a57c51d3226b87e3795e6474393772da46101fd597fbd456c1b
-..3f9dc0c4f67f207974123830c2d66988fb3fb44becbbba5a64143f376edc51d9,
-8a73624024659145d99046f7c25332c0427a1a419b90c9c31f11dcb43bfa5dea
-..85fe0551e6e344c777470a6a75665195980c655ed0b3fe459512a901981313ce
-..23003968a3487ea5b5de2f9f4372727ac137ab04fec24c03a4ebd77055851650
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
+2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
+e92c4361fa428aee820ffacd98b720902febe97edba1cfd865c96be4b30d6c0b,
+5e90ec844e6c487d42ea66f46d03e998d9352a3f18fa01d13f8907504070f389,
+f6cdc963a17fd2807b3bd3e638561c8a4c276d7009c227ddc56be12e997e0285,
+867275332775f5c505668e5503aadaa29ee4ba6aed58a8c63988f308bdbfa910,
+6d20d2c4ff7347c8fcd7628a94629374664ef99ef5ce185d6351d9b015cef502,
+010f092028ea81e258c2517c3a685fa7e4eb56404831fa08450d4d1e525d680b,
+8b3031022897595ba3a280d6af047a46498f6fbfd62081d1df6a2e4b713014df
+..bd7fcb7c0956648c043bc345a8fb3e1a2c73815bf87f6c3cb985a00c9e95e991
+..307d3bef5e82f857b97f987da190e5fc6d77a9d24ac2068b701df1ab0487a1d8
+..0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1
+..72ce1e7899c633b92709702bdfbe74347d9bdcd1ad62b13f960ade3d1df899b3
+..73154c7a701d5d6d38216c4be09800c024c35e4739e43f2b7aa5e0b55a281757
+..a4cc78b2e3eb6a19a777ff20bb801c043f73d836aab81038e286560e260922b4
+..0c5335e7855f8a38e9ffada8eadb2415f82b5822319fa53b66ef1c0469048ec3,
+89bd64badc4998bd91dc2eae3edd5e90e60ae6d3ee9722d43822c9653eb1c0dc
+..19d24533e761b39fa68e6ab92a3ccb79b7f681bde365bd3827eacc69dd8ed46e
+..fc530532b2110eb097360a6db718dd233580a7880a560d794dbf63c5fc146c6a
 ..92e630ae2b14e758ab0960e372172203f4c9a41777dadd529971d7ab9d23ab29
 ..fe0e9c85ec450505dde7f5ac038274cf,
-a8455660f642a887ca7bced683e7c5315c6ebff1d7d047ca43f5b5c7b34c244a
-..3902f6ca62346b638ed58e4aa5b2c1c29107bd20fe94a01157764aab5f300d7e
+8365796b6a7889f0a7c96b502d0b26282c8531a1910defdcb3181e272e1c3b38
+..3494b8e274060ca2287f164d3dd34ba39107bd20fe94a01157764aab5f300d7e
 ..2fcba2178cb80851890a656d89550d0bebf60cca8c23575011d2f37cdc06dcdd
-..85a6e99a7824dc5f71bbe12cd251236e62139b0fd1f2f17e979f098520fb37c4
-..cee0af5e1fa9f328d351bbe59044eb3f8156b5f8f7ee79d502b573f752c9d913
-..fdb27c803162ca2b0711a1544679c8c40247a02d5c555d5c1f70cc6c98e82adb
-..77224cedf52fe9093b6dea787a5f04c67344bae1bc8a73ec67839de08202a95f
-..3156b0923bfb4de17fc2fea219af465b11f1285c32008b9ca59a88d7b085e23f
-..95f99f59c457e2ecdffb9dc7fc3c8c169bc1195e70f5e7c49c56329297d0c133
-..9411db06e43c66b2fd1cbe3807d1225f8eb9ca6a5b19653271a51a737224204d
-..55e9e06cb7eb1748f7770d9cdcda4b0030d84c0213b76ad5fbc9c36da4c8e21e
-..daa6e8dc51fa80dfb938ec531e5ef248867c9d02f3604cbd8172a80a241feb49
-..61ae6a954dc81e266cff5a651b3127700848ae83e88246034d18a55f2e9eba26
-..b2cb13d93cb704fff63665b87bd0ccd595c8561ae10a4484af3a070a20537df6
-..79737410b648dd6c187cdc0277690b882497d53af3a8fcab1243a0bab5a49d69
-..22a4e3ae917b19959a085708d26cd90898763d698a75332d1aa817534af67420
-..f58c4126d7710ff7075d9a78bf4eaaf9ec30a9d4562f6db0f14ae82cf384179b
-..8bd41390d2340377998f0ab8fb1547ebd4b45b36110a582db3e0d19ecb8cac6a
-..8d35ba072f8176100cdde64c53a14b53,
+..b3d4ed85e4a7868b15d1f9dbdda94349e5ec4b15e2f7ebf92db5a5ad5c5ac9a4
+..b4f6e7f5d46939d35e39dce2818b55d98a0cdf62a1b922ba440480f9bba6f719
+..b3dd89798ae6bcbf927ed6001c6792e6882e13f0b9a793986131c657ea2d9668
+..169046f22d0bf9cd755e1513d09b4426b2841f1db5fc7ff18e57be60c4f4d053
+..e1ad4cbb9f01b18ca23cfce84dcebb070c4520b5445d209aa1835e108c306429
+..f0a2a0d0a963d35dd30a9757d9c8f71ca8194a36921df7bae7f9669d91df1d37
+..61dbeb4d77674e4151c49573cebb4b084ac3ad453bcd00df15f9dc02d2b13461
+..07fc58774d8856608ed661abd380aeeaa0254ba6a42f6f6b521c0d65c1e25245
+..3da83a02298e3739d136df2ff9b7bd647dcfd631213620e4b098f2564c2fe20c
+..520b3d3b5000b71486d9dd2421a297436dd5a91658f8120ea9e7c47709fdbe71
+..969430c473503030e6a4618bd443f0f2dc81798e6de9660b6f0cb4ab816e53da
+..70f4c26f671bff6f3e1e03e4764a4977ba67d4a89a4c3eb868ff874eadcc0f9f
+..368812228f6a9e6ed04cec7bbd356401b597b5f7ba7a5f3a9b415d4be6690b3d
+..c8c5e3671c434830dde1bd672211ea3e146aa04ddd1317f253821dd780c554ab
+..92bc8ac170b8050e3a7b2a3c8d835ab13ac70012ae382c09353b359e99d246ad
+..e99de5bfc79e10e715c5b24723990a4e,
 \end{verbatim}
 
 \subsubsection{bandersnatch\_sha-512\_ell2\_ring -
 vector-7}\label{bandersnatch_sha-512_ell2_ring---vector-7}
 
 \begin{verbatim}
-35b877a25c394512292b82bdf8468e98eaf03c79c7fc9d53546dadc5fb75b500,
-b0e1f208f9d6e5b310b92014ea7ef3011e649dab038804759f3766e01029d623,
+76f8b81d866b4c8b89d1f7d40954c406ad3b6c33e2bb8ece9102d7a4f8483502,
+0384ac15569e3147105862c293863fa47aed4718b5fd791cc689fbfa7e8ce75c,
 42616e646572736e6174636820766563746f72,
--,
 1f42,
-4315192d2ce9e52ceb449a6b4da7f7e6636e53592c7f5e236763e21e9bac24c7,
-6d1dd583bea262323c7dc9e94e57a472e09874e435719010eeafae503c433f16,
-09106f062ac07846f3f841f64765527b333575143483855d633f99ccc2e8e306
-..e6239ff79a1272cff931e8d0ac6c390328486329118ad40a18b85184da1837ff,
-462ae9ad651e5caf11247b989fecb5f2b1729479c33b9133388d14fa35dbbd0c,
-91f1ca92eeaa0b604faf3e4811c12b44991ea33cf582a529a4bc4429a3b6cc5a,
-2dce0eb9684582fbb5b9e9534811f2fff76ff4e63b446f82f8f53a535eb0021a,
-1962ce1b62aaec76bd34822f86e8146dff613fdb6d879ccc04860017d08e5adb,
-b302aca865948a67603c6eb159f0af27a901159bd6e22f82c30b048a0d806703,
-ec440f25b481ac453c9c9efa59c5a9cd9253204f14af41d272673147f02ad40f,
-7b32d917d5aa771d493c47b0e096886827cd056c82dbdba19e60baa8b2c60313
-..d3b1bdb321123449c6e89d310bc6b7f654315eb471c84778353ce08b951ad471
-..561fdb0dcfb8bd443718b942f82fe717238cbcf8d12b8d22861c8a09a984a3c5
-..b0e1f208f9d6e5b310b92014ea7ef3011e649dab038804759f3766e01029d623
-..4fd11f89c2a1aaefe856bb1c5d4a1fad73f4de5e41804ca2c17ba26d6e10050c
-..86d06ee2c70da6cf2da2a828d8a9d8ef755ad6e580e838359a10accb086ae437
-..ad6fdeda0dde0a57c51d3226b87e3795e6474393772da46101fd597fbd456c1b
-..3f9dc0c4f67f207974123830c2d66988fb3fb44becbbba5a64143f376edc51d9,
-a359e70e307799b111ad89b162b4260fb4a96ebf4232e8b02d396033498d4216
-..305ed9cff3584a4c68f03ab3df87243a80bfc965633efc23c82ca064afe105ba
-..acccbf23e47b543d16c3c4466a83242a77acc16f79b8710051b5e97c85319cf3
+47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
+a2332c9646371ec14e3ba6ac3ae8ea93a65159dec7dcd2e5c022e14bdf7395b3,
+26ea4ea18ba21e48b1c0a658fc1a4600f21c6957f6cc85e1209e69b77dc1eab6,
+f67e235556416f9c25dfd7cb5a20e604b61a33873fd45a5e49859c637097e515,
+2f66b036b6b94aeb23ca08f973de9975be8e3ef70c04a02ee7b774ec0aacf68b,
+f5a2c3b55fdbde96f666bfa678c1e61c3c286d0ea340753ba47e345c1bef42a4,
+4d763f0e68dad33df0793d563927e3be54bbc5a3a14c1aebe53b5376d1420e12,
+17e28d896b23033642617a170c17f442ec5ee1a38d7957970b352fe7837e8f0b,
+c74fa25391398ed8aed9260de6774d8a84fa7e496be2fa71cc07c2521129d60f,
+8b3031022897595ba3a280d6af047a46498f6fbfd62081d1df6a2e4b713014df
+..bd7fcb7c0956648c043bc345a8fb3e1a2c73815bf87f6c3cb985a00c9e95e991
+..307d3bef5e82f857b97f987da190e5fc6d77a9d24ac2068b701df1ab0487a1d8
+..0384ac15569e3147105862c293863fa47aed4718b5fd791cc689fbfa7e8ce75c
+..72ce1e7899c633b92709702bdfbe74347d9bdcd1ad62b13f960ade3d1df899b3
+..73154c7a701d5d6d38216c4be09800c024c35e4739e43f2b7aa5e0b55a281757
+..a4cc78b2e3eb6a19a777ff20bb801c043f73d836aab81038e286560e260922b4
+..0c5335e7855f8a38e9ffada8eadb2415f82b5822319fa53b66ef1c0469048ec3,
+b3cfb7d73f916c3e9b19020ced68c34f3fd354fa57b73e0f47fcd3a0b37fc452
+..7d3db88335c1b7dcdef0be19176bfd8a93f93e869d1ec517a9470334f65bfd1c
+..2886c6e1f73be76cea825f94a13201b59081999eb97cdb939ee134f117bfd142
 ..92e630ae2b14e758ab0960e372172203f4c9a41777dadd529971d7ab9d23ab29
 ..fe0e9c85ec450505dde7f5ac038274cf,
-88a7fc8a8ae7d295bdd26553b06d298c7d7fdb3f08746aba8e3312d78254a201
-..3d4cd3bea7b62156b5a5b0a42e7e45179107bd20fe94a01157764aab5f300d7e
+ab5f081934cd9109aa080532529085929b2621db492017375ff51f415565b88b
+..403a3c628916055ba9359877747ddad59107bd20fe94a01157764aab5f300d7e
 ..2fcba2178cb80851890a656d89550d0bebf60cca8c23575011d2f37cdc06dcdd
-..807677ad0f02386ef4e6eb99d230aca4c9a73ee3f68397a65c98d6377bf32e1c
-..e36ae082eafb81393786ab07f7a461798e0d87a09cf3d6ea801fc22d65c907dc
-..b30ffb60128a307105cdd5db58f93967ec1c0497eba4db9dac64eb2dfe43baeb
-..30cbe5d2184c998b9070dcda0c8170286d793d583982adb77f01f2ddd295a161
-..61399bcc4b0505757b49074173aca578544d676a44d37fc01321feec35e97437
-..6e2080c28a9bfd963566febe2aac12fe51326001b67abbbdc2d67a24c7605b56
-..b4c12eb37e41fbace1e45bf37750057ca1bea272955a82bd2b9930d1a4c2f03d
-..7dc19572954c84f2175706be08a9e7b12445f50bb4bcd6ed77c3d8f3356cc034
-..6bc0a6359ca9384239bf09b160a5845710e688c4dbc7cb7e27494f0746818221
-..f6b6e7af92a58c68f29415fdea5f75ab3e45b1138a7ecde2ff6eac44772f100f
-..a4e6f4b97c4a401e919dbfd1386253a1dde71a3d6bbf24de9a01e1adca917d84
-..e3f10888680e2b736f51a1336d7f6099000777bd3a6de5636654012b5873d109
-..4994887e59f7a6565999b922cafac10782ba51d1290e344ddd3ee84a324ba241
-..b8c9a32c6fb85bb7164878f2de12c9cece5ef7b92860a55fb25ccb65839a66b1
-..a73d4975f06823422cbe4aac82eef13e88eb6f6fd363bb19436f34b40825438d
-..c55d3812bb0485d4ae4f9cc67af7074d,
+..89e3a57b4f2d76b387c802905086cb3fb4207c69acc9a004f6329b9635ee076b
+..532c39cf8f4860aa2065b2a9a7a421a0b6620c2f8cd96ea1deaf3a815b73920d
+..33d66bff55efeaec6a675ce8d0a791b4e0965d6e874d58a111001bf8827c70f0
+..974d2c9e7ea44a66c4f8a0cd1435cafa61dbc4db429146561e4271b23d041d32
+..09801f8b9e10b26e47904a549989bfd3002fac5a280ae6b2d602afa72e1ded0f
+..36eaa24e23b5ecbf637579580cb0664500d357e2c5ac9e523a7867720bf03d3c
+..e2019e0529b67592c72656fe4d4f01f7d2aea8545248354fddeefa12b4cf7d0f
+..280b32208c44c8cf62a0a994ca35c835330836a008fef26cd03652aa13e78828
+..f6a1230672869e39602cde2af655ad9623a12ba300d832ef8265e7949e3b5b07
+..7a43b59f26f3c9fc006930af7b0e6e76ea81a20673d9def754ffeb2086ee6528
+..b8ff0af3e0fe9453d10b26a93403ddaee0d83c15d0b95637b006955c3cccbd4f
+..128c6c5eb62b20c177ea424e6e47d1f40496ffc8af31f2d6421126583f903865
+..8ebaba6a1c31dc5d70e489aaa22a344da08fa7f3cd61646994fcf49622f053c1
+..09625f8585163124a2b736b51ce6c00ba7383ea69b6969328235ce0aeaf66bad
+..8714847026c23163de5b8b506e0474a606a0e9429359cacb54aeefd2305fbce8
+..eacf07e33d5e1032b7de4e6f854ba1d1,
 \end{verbatim}
 
 \section*{References}\label{references}
@@ -1631,34 +2309,31 @@ a359e70e307799b111ad89b162b4260fb4a96ebf4232e8b02d396033498d4216
 \phantomsection\label{refs}
 \begin{CSLReferences}{0}{0}
 \bibitem[\citeproctext]{ref-RFC9381}
-1. Internet Engineering Task Force
-\emph{\href{https://datatracker.ietf.org/doc/rfc9381}{{Verifiable Random
-Functions}}}; {RFC Editor}, 2023;
+1. Internet Engineering Task Force \emph{{Verifiable Random Functions}};
+{RFC Editor}, 2023; \url{https://datatracker.ietf.org/doc/rfc9381}.
 
 \bibitem[\citeproctext]{ref-BCHSV23}
 2. Burdges, J.; Ciobotaru, O.; Alper, H.K.; Stewart, A.; Vasilyev, S.
-\href{https://eprint.iacr.org/2023/002}{Ring Verifiable Random Functions
-and Zero-Knowledge Continuations} 2023.
+Ring Verifiable Random Functions and Zero-Knowledge Continuations 2023;
+\url{https://eprint.iacr.org/2023/002}.
 
-\bibitem[\citeproctext]{ref-VG24}
-3. Vasilyev, S.; Galassi, D.
-\href{https://github.com/davxy/ring-proof-spec}{Ring Proof Technical
-Specification} 2024.
+\bibitem[\citeproctext]{ref-CSSV22}
+3. Ciobotaru, O.; Shirazi, F.; Stewart, A.; Vasilyev, S. Accountable
+Light Client Systems for PoS Blockchains 2022;
+\url{https://eprint.iacr.org/2022/1205}.
 
 \bibitem[\citeproctext]{ref-MSZ21}
-4. Masson, S.; Sanso, A.; Zhang, Z.
-\href{https://eprint.iacr.org/2021/1152}{Bandersnatch: A Fast Elliptic
-Curve Built over the BLS12-381 Scalar Field} 2021.
+4. Masson, S.; Sanso, A.; Zhang, Z. Bandersnatch: A Fast Elliptic Curve
+Built over the BLS12-381 Scalar Field 2021;
+\url{https://eprint.iacr.org/2021/1152}.
+
+\bibitem[\citeproctext]{ref-VG24}
+5. Vasilyev, S.; Galassi, D. Ring Proof Technical Specification 2024;
+\url{https://github.com/davxy/ring-proof-spec}.
 
 \bibitem[\citeproctext]{ref-RFC9380}
-5. Internet Engineering Task Force
-\emph{\href{https://datatracker.ietf.org/doc/rfc9380}{{Hashing to
-Elliptic Curves}}}; {RFC Editor}, 2023;
-
-\bibitem[\citeproctext]{ref-RFC6234}
-6. Internet Engineering Task Force
-\emph{\href{https://datatracker.ietf.org/doc/rfc6234}{{US Secure Hash
-Algorithms}}}; {RFC Editor}, 2011;
+6. Internet Engineering Task Force \emph{{Hashing to Elliptic Curves}};
+{RFC Editor}, 2023; \url{https://datatracker.ietf.org/doc/rfc9380}.
 
 \end{CSLReferences}
 
