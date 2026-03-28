@@ -118,9 +118,10 @@ on \href{https://datatracker.ietf.org/doc/rfc9381}{RFC-9381} {[}1{]};
 the Thin VRF and Pedersen VRF follow the constructions introduced by
 \href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]}, with the
 Pedersen VRF serving as a building block for anonymized ring signatures
-as described in \href{https://github.com/davxy/ring-proof-spec}{VG24}
-{[}3{]}. All schemes are instantiated over the Bandersnatch elliptic
-curve, constructed over the BLS12-381 scalar field as specified in
+based on the ring proof scheme derived from
+\href{https://eprint.iacr.org/2022/1205}{CSSV22} {[}3{]}. All schemes
+are instantiated over the Bandersnatch elliptic curve, constructed over
+the BLS12-381 scalar field as specified in
 \href{https://eprint.iacr.org/2021/1152}{MSZ21} {[}4{]}.
 
 \section{1. Preliminaries}\label{preliminaries}
@@ -1153,11 +1154,20 @@ T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{PedersenBatch} \\
 \section{5. Ring VRF}\label{ring-vrf}
 
 Anonymized ring VRF based on Pedersen VRF (section 4) and Ring Proof as
-proposed in \href{https://github.com/davxy/ring-proof-spec}{VG24}.
+proposed in \href{https://eprint.iacr.org/2023/002}{BCHSV23} {[}2{]}.
 
-The following configuration specializes
-\href{https://github.com/davxy/ring-proof-spec}{VG24} for the concrete
-scheme:
+The ring proof can be seen as a special case of the Committee Key Scheme
+(CKS) introduced by \href{https://eprint.iacr.org/2022/1205}{CSSV22}
+{[}3{]}, reduced to a single signer. In CKS, a prover commits to a set
+of public keys using a KZG polynomial commitment and produces a SNARK
+showing that a subset of keys -- identified by a bitvector -- belongs to
+the committed set. The ring proof is the degenerate case where the
+bitvector has exactly one bit set: it proves that a single (blinded) key
+is a member of the committed ring, without revealing which one.
+
+The concrete specification of the ring proof scheme is given in
+\href{https://github.com/davxy/ring-proof-spec}{VG24} {[}5{]}. The
+following configuration specializes it for this scheme:
 
 \begin{itemize}
 \tightlist
@@ -1273,7 +1283,7 @@ input the string: \texttt{"ring-padding"}.
 The blinding factor \(b\) is derived internally by Pedersen prove
 (section 4.1, step 2) and forwarded to the ring prover. \(Ring.prove\)
 and \(Ring.verify\) are defined in
-\href{https://github.com/davxy/ring-proof-spec}{VG24} {[}3{]}.
+\href{https://github.com/davxy/ring-proof-spec}{VG24} {[}5{]}.
 
 \subsection{5.2. Verify}\label{verify-3}
 
@@ -1362,7 +1372,7 @@ block position if squeezing has begun).
 
 Instantiation of the \(\texttt{hash\_to\_curve}\) function (section
 1.6.2) using the method defined in section 3 of
-\href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380} {[}5{]}, with
+\href{https://datatracker.ietf.org/doc/rfc9380}{RFC-9380} {[}6{]}, with
 the \emph{Elligator 2} map to curve (section 6.8.2) and
 \(\texttt{expand\_message\_xmd}\) with SHA-512 (section 5.3.1).
 
@@ -2307,17 +2317,22 @@ ab5f081934cd9109aa080532529085929b2621db492017375ff51f415565b88b
 Ring Verifiable Random Functions and Zero-Knowledge Continuations 2023;
 \url{https://eprint.iacr.org/2023/002}.
 
-\bibitem[\citeproctext]{ref-VG24}
-3. Vasilyev, S.; Galassi, D. Ring Proof Technical Specification 2024;
-\url{https://github.com/davxy/ring-proof-spec}.
+\bibitem[\citeproctext]{ref-CSSV22}
+3. Ciobotaru, O.; Shirazi, F.; Stewart, A.; Vasilyev, S. Accountable
+Light Client Systems for PoS Blockchains 2022;
+\url{https://eprint.iacr.org/2022/1205}.
 
 \bibitem[\citeproctext]{ref-MSZ21}
 4. Masson, S.; Sanso, A.; Zhang, Z. Bandersnatch: A Fast Elliptic Curve
 Built over the BLS12-381 Scalar Field 2021;
 \url{https://eprint.iacr.org/2021/1152}.
 
+\bibitem[\citeproctext]{ref-VG24}
+5. Vasilyev, S.; Galassi, D. Ring Proof Technical Specification 2024;
+\url{https://github.com/davxy/ring-proof-spec}.
+
 \bibitem[\citeproctext]{ref-RFC9380}
-5. Internet Engineering Task Force \emph{{Hashing to Elliptic Curves}};
+6. Internet Engineering Task Force \emph{{Hashing to Elliptic Curves}};
 {RFC Editor}, 2023; \url{https://datatracker.ietf.org/doc/rfc9380}.
 
 \end{CSLReferences}

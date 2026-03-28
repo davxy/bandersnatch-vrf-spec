@@ -20,7 +20,7 @@ transcript-based Fiat-Shamir transform with support for multiple input/output
 pairs via delinearization. The IETF VRF is based on [RFC-9381] [@RFC9381]; the Thin
 VRF and Pedersen VRF follow the constructions introduced by [BCHSV23] [@BCHSV23],
 with the Pedersen VRF serving as a building block for anonymized ring signatures
-as described in [VG24] [@VG24]. All schemes are instantiated over the
+based on the ring proof scheme derived from [CSSV22] [@CSSV22]. All schemes are instantiated over the
 Bandersnatch elliptic curve, constructed over the BLS12-381 scalar field as
 specified in [MSZ21] [@MSZ21].
 
@@ -612,9 +612,19 @@ T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{PedersenBatch} \\
 
 # 5. Ring VRF
 
-Anonymized ring VRF based on Pedersen VRF (section 4) and Ring Proof as proposed in [VG24].
+Anonymized ring VRF based on Pedersen VRF (section 4) and Ring Proof as
+proposed in [BCHSV23] [@BCHSV23].
 
-The following configuration specializes [VG24] for the concrete scheme:
+The ring proof can be seen as a special case of the Committee Key Scheme (CKS)
+introduced by [CSSV22] [@CSSV22], reduced to a single signer. In CKS, a prover
+commits to a set of public keys using a KZG polynomial commitment and produces a
+SNARK showing that a subset of keys -- identified by a bitvector -- belongs to the
+committed set. The ring proof is the degenerate case where the bitvector has exactly
+one bit set: it proves that a single (blinded) key is a member of the committed ring,
+without revealing which one.
+
+The concrete specification of the ring proof scheme is given in [VG24] [@VG24].
+The following configuration specializes it for this scheme:
 
 - **Groups and Fields**:
   - $\mathbb{G_1}$: BLS12-381 prime order subgroup.
@@ -1589,4 +1599,5 @@ ab5f081934cd9109aa080532529085929b2621db492017375ff51f415565b88b
 [RFC-6234]: <https://datatracker.ietf.org/doc/rfc6234>
 [BCHSV23]: <https://eprint.iacr.org/2023/002>
 [MSZ21]: <https://eprint.iacr.org/2021/1152>
+[CSSV22]: <https://eprint.iacr.org/2022/1205>
 [VG24]: <https://github.com/davxy/ring-proof-spec>
