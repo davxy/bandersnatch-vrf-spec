@@ -337,6 +337,18 @@ on the delinearized merged pair. The challenge scalar $c$ is stored instead
 of the nonce commitment, yielding a smaller proof at the cost of not
 supporting batch verification.
 
+**Security**: VRF input points MUST be constructed via hash-to-curve. If a
+prover knows $d$ such that $I = d \cdot G$, they can forge arbitrary outputs
+for that input, because the delinearization merges the Schnorr and VRF pairs
+into a single check that collapses when all points are multiples of $G$.
+
+**Proof encoding**: The challenge $c$ is produced by squeezing
+$\texttt{challenge\_len}$ bytes from the transcript. Since $2^{8 \cdot \texttt{challenge\_len}} < r$,
+no modular reduction occurs and $c$ is encoded as its raw $\texttt{challenge\_len}$-byte
+little-endian representation. The scalar $s$ is encoded via $\texttt{enc\_scalar}$ (32 bytes).
+The total proof size is $\texttt{challenge\_len} + 32$ bytes. Verifiers MUST reject
+proofs where $c \geq 2^{8 \cdot \texttt{challenge\_len}}$.
+
 ## 2.1. Prove
 
 **Input**:
@@ -354,8 +366,8 @@ supporting batch verification.
 1. $Y \gets x \cdot G$
 2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{TinyVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
 3. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
-4. $V \gets k \cdot I_m$
-5. $c \gets \texttt{challenge}([V], T)$
+4. $R \gets k \cdot I_m$
+5. $c \gets \texttt{challenge}([R], T)$
 6. $s \gets k + c \cdot x$
 7. $\pi \gets (c, s)$
 
@@ -376,8 +388,8 @@ supporting batch verification.
 
 1. Validate $Y$ and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
 2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{TinyVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
-3. $V \gets s \cdot I_m - c \cdot O_m$
-4. $c' \gets \texttt{challenge}([V], T)$
+3. $R \gets s \cdot I_m - c \cdot O_m$
+4. $c' \gets \texttt{challenge}([R], T)$
 5. $\theta \gets \top \text{ if } c = c' \text{ else } \bot$
 
 # 3. Thin VRF
@@ -387,11 +399,6 @@ pairs, applies delinearization, and proves a single DLEQ on the merged pair.
 The difference is the proof format: Thin VRF stores the nonce commitment $R$
 rather than the challenge $c$, which enables batch verification at the cost
 of a slightly larger proof.
-
-**Security**: VRF input points MUST be constructed via hash-to-curve. If a
-prover knows $d$ such that $I = d \cdot G$, they can forge arbitrary outputs
-for that input, because the delinearization merges the Schnorr and VRF pairs
-into a single check that collapses when all points are multiples of $G$.
 
 ## 3.1. Prove
 
