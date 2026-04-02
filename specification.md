@@ -3,7 +3,7 @@ title: Bandersnatch VRF-AD Specification
 author:
   - Davide Galassi
   - Seyed Hosseini
-date: 28 Mar 2026 - Draft 32
+date: 2 Apr 2026 - Draft 33
 ---
 
 \newcommand{\G}{\bold{G}}
@@ -15,14 +15,16 @@ date: 28 Mar 2026 - Draft 32
 # *Abstract*
 
 This specification defines three Verifiable Random Function with Additional Data
-(VRF-AD) schemes -- IETF VRF, Thin VRF, and Pedersen VRF -- built on a
+(VRF-AD) schemes -- Tiny VRF, Thin VRF, and Pedersen VRF -- built on a
 transcript-based Fiat-Shamir transform with support for multiple input/output
-pairs via delinearization. The IETF VRF is based on [RFC-9381] [@RFC9381]; the Thin
-VRF and Pedersen VRF follow the constructions introduced by [BCHSV23] [@BCHSV23],
-with the Pedersen VRF serving as a building block for anonymized ring signatures
-based on the ring proof scheme derived from [CSSV22] [@CSSV22]. All schemes are instantiated over the
-Bandersnatch elliptic curve, constructed over the BLS12-381 scalar field as
-specified in [MSZ21] [@MSZ21].
+pairs via delinearization. Tiny VRF and Thin VRF are loosely inspired by IETF
+ECVRF [RFC-9381] [@RFC9381], adapted with a transcript-based Fiat-Shamir
+transform, support for additional data, and multiple I/O pairs via
+delinearization. Pedersen VRF follows the construction introduced by
+[BCHSV23] [@BCHSV23] and serves as a building block for anonymized ring
+signatures based on the ring proof scheme derived from [CSSV22] [@CSSV22].
+All schemes are instantiated over the Bandersnatch elliptic curve, constructed
+over the BLS12-381 scalar field as specified in [MSZ21] [@MSZ21].
 
 
 # 1. Preliminaries
@@ -103,7 +105,7 @@ Domain separation tags used throughout the protocol:
 
 | Tag | Value | Usage |
 |-----|-------|-------|
-| IetfVrf | 0x00 | IETF VRF scheme identifier |
+| TinyVrf | 0x00 | Tiny VRF scheme identifier |
 | ThinVrf | 0x01 | Thin VRF scheme identifier |
 | PedersenVrf | 0x02 | Pedersen VRF scheme identifier |
 | NonceExpand | 0x10 | Nonce secret expansion |
@@ -182,7 +184,7 @@ $$O \gets x \cdot I$$
 The VRF output hash is a fixed-length octet string derived from the output point
 using a transcript-based point-to-hash procedure. The procedure is deliberately
 independent of the proof scheme: for a given key and input, the output point
-$O = x \cdot I$ is unique regardless of whether IETF VRF, Thin VRF, or Pedersen
+$O = x \cdot I$ is unique regardless of whether Tiny VRF, Thin VRF, or Pedersen
 VRF is used to prove correctness. The scheme determines how the proof is
 constructed, not the VRF output itself. This separation allows applications to
 obtain consistent output hashes across schemes for the same underlying evaluation.
@@ -327,12 +329,13 @@ squeezing.
 
 - $T = T_{in} \;\Vert\; \texttt{Challenge} \;\Vert\; \texttt{enc\_point}(P_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(P_{m-1})$
 
-# 2. IETF VRF
+# 2. Tiny VRF
 
-Based on IETF [RFC-9381] but adapted with a transcript-based Fiat-Shamir
-transform, support for additional data ($ad$), and multiple I/O pairs via
-delinearization. These changes make this scheme incompatible with standard
-RFC-9381 implementations and test vectors.
+Compact VRF-AD scheme producing a short $(c, s)$ proof. Like Thin VRF, it
+prepends the Schnorr pair $(G, Y)$ to the I/O list and proves a single DLEQ
+on the delinearized merged pair. The challenge scalar $c$ is stored instead
+of the nonce commitment, yielding a smaller proof at the cost of not
+supporting batch verification.
 
 ## 2.1. Prove
 
@@ -349,10 +352,10 @@ RFC-9381 implementations and test vectors.
 **Steps**:
 
 1. $Y \gets x \cdot G$
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{TinyVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
 3. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
-4. $U \gets k \cdot G$, $\quad V \gets k \cdot I_m$
-5. $c \gets \texttt{challenge}([U, V], T)$
+4. $V \gets k \cdot I_m$
+5. $c \gets \texttt{challenge}([V], T)$
 6. $s \gets k + c \cdot x$
 7. $\pi \gets (c, s)$
 
@@ -372,22 +375,18 @@ RFC-9381 implementations and test vectors.
 **Steps**:
 
 1. Validate $Y$ and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
-3. $U \gets s \cdot G - c \cdot Y$
-4. $V \gets s \cdot I_m - c \cdot O_m$
-5. $c' \gets \texttt{challenge}([U, V], T)$
-6. $\theta \gets \top \text{ if } c = c' \text{ else } \bot$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{TinyVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
+3. $V \gets s \cdot I_m - c \cdot O_m$
+4. $c' \gets \texttt{challenge}([V], T)$
+5. $\theta \gets \top \text{ if } c = c' \text{ else } \bot$
 
 # 3. Thin VRF
 
-Thin VRF is derived from the PedVRF construction in section 4 of
-[BCHSV23] [@BCHSV23] by removing the blinding mechanism entirely (see remark
-on page 13 of the paper). Without blinding, Pedersen VRF reduces to two
-independent DLEQ checks on $(G, Y)$ and $(I_m, O_m)$ with the same secret $x$.
-Thin VRF merges these into a single DLEQ relation by prepending $(G, Y)$ to
-the I/O pairs and applying delinearization, then proves it with a Schnorr-like
-proof $(R, s)$. Storing the nonce commitment $R$ (rather than the challenge $c$)
-enables batch verification.
+Thin VRF is structurally similar to Tiny VRF: it prepends $(G, Y)$ to the I/O
+pairs, applies delinearization, and proves a single DLEQ on the merged pair.
+The difference is the proof format: Thin VRF stores the nonce commitment $R$
+rather than the challenge $c$, which enables batch verification at the cost
+of a slightly larger proof.
 
 **Security**: VRF input points MUST be constructed via hash-to-curve. If a
 prover knows $d$ such that $I = d \cdot G$, they can forge arbitrary outputs
@@ -480,7 +479,7 @@ T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{ThinBatch} \\
 
 # 4. Pedersen VRF
 
-Pedersen VRF resembles IETF EC-VRF but replaces the public key with a Pedersen
+Pedersen VRF resembles Tiny VRF but replaces the public key with a Pedersen
 commitment to the secret key, which makes this VRF useful in anonymized ring
 proofs.
 
@@ -822,7 +821,7 @@ When $n = 0$ no VRF output can be derived, since there are no output points
 to hash. The proof-of-knowledge component, however, remains sound in all
 schemes: a valid proof still requires knowledge of the secret key $x$.
 
-- **IETF VRF and Thin VRF**: Both schemes prepend the Schnorr pair $(G, Y)$
+- **Tiny VRF and Thin VRF**: Both schemes prepend the Schnorr pair $(G, Y)$
   to the I/O list before delinearization (sections 2.1 and 3.1, step 2),
   so the internal pair count is at least 1 regardless of the user-supplied $n$.
   With zero VRF pairs, the scheme degenerates to a Schnorr signature on the
@@ -841,7 +840,7 @@ schemes: a valid proof still requires knowledge of the secret key $x$.
 The test vectors in this section were generated using `ark-vrf` libraries
 revision `c01eee3`.
 
-## C.1. IETF VRF Test Vectors
+## C.1. Tiny VRF Test Vectors
 
 Schema:
 
