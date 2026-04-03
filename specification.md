@@ -3,7 +3,7 @@ title: Bandersnatch VRF-AD Specification
 author:
   - Davide Galassi
   - Seyed Hosseini
-date: 28 Mar 2026 - Draft 32
+date: 2 Apr 2026 - Draft 33
 ---
 
 \newcommand{\G}{\bold{G}}
@@ -15,14 +15,16 @@ date: 28 Mar 2026 - Draft 32
 # *Abstract*
 
 This specification defines three Verifiable Random Function with Additional Data
-(VRF-AD) schemes -- IETF VRF, Thin VRF, and Pedersen VRF -- built on a
+(VRF-AD) schemes -- Tiny VRF, Thin VRF, and Pedersen VRF -- built on a
 transcript-based Fiat-Shamir transform with support for multiple input/output
-pairs via delinearization. The IETF VRF is based on [RFC-9381] [@RFC9381]; the Thin
-VRF and Pedersen VRF follow the constructions introduced by [BCHSV23] [@BCHSV23],
-with the Pedersen VRF serving as a building block for anonymized ring signatures
-based on the ring proof scheme derived from [CSSV22] [@CSSV22]. All schemes are instantiated over the
-Bandersnatch elliptic curve, constructed over the BLS12-381 scalar field as
-specified in [MSZ21] [@MSZ21].
+pairs via delinearization. Tiny VRF and Thin VRF are loosely inspired by IETF
+ECVRF [RFC-9381] [@RFC9381], adapted with a transcript-based Fiat-Shamir
+transform, support for additional data, and multiple I/O pairs via
+delinearization. Pedersen VRF follows the construction introduced by
+[BCHSV23] [@BCHSV23] and serves as a building block for anonymized ring
+signatures based on the ring proof scheme derived from [CSSV22] [@CSSV22].
+All schemes are instantiated over the Bandersnatch elliptic curve, constructed
+over the BLS12-381 scalar field as specified in [MSZ21] [@MSZ21].
 
 
 # 1. Preliminaries
@@ -103,7 +105,7 @@ Domain separation tags used throughout the protocol:
 
 | Tag | Value | Usage |
 |-----|-------|-------|
-| IetfVrf | 0x00 | IETF VRF scheme identifier |
+| TinyVrf | 0x00 | Tiny VRF scheme identifier |
 | ThinVrf | 0x01 | Thin VRF scheme identifier |
 | PedersenVrf | 0x02 | Pedersen VRF scheme identifier |
 | NonceExpand | 0x10 | Nonce secret expansion |
@@ -182,7 +184,7 @@ $$O \gets x \cdot I$$
 The VRF output hash is a fixed-length octet string derived from the output point
 using a transcript-based point-to-hash procedure. The procedure is deliberately
 independent of the proof scheme: for a given key and input, the output point
-$O = x \cdot I$ is unique regardless of whether IETF VRF, Thin VRF, or Pedersen
+$O = x \cdot I$ is unique regardless of whether Tiny VRF, Thin VRF, or Pedersen
 VRF is used to prove correctness. The scheme determines how the proof is
 constructed, not the VRF output itself. This separation allows applications to
 obtain consistent output hashes across schemes for the same underlying evaluation.
@@ -327,12 +329,25 @@ squeezing.
 
 - $T = T_{in} \;\Vert\; \texttt{Challenge} \;\Vert\; \texttt{enc\_point}(P_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_point}(P_{m-1})$
 
-# 2. IETF VRF
+# 2. Tiny VRF
 
-Based on IETF [RFC-9381] but adapted with a transcript-based Fiat-Shamir
-transform, support for additional data ($ad$), and multiple I/O pairs via
-delinearization. These changes make this scheme incompatible with standard
-RFC-9381 implementations and test vectors.
+Compact VRF-AD scheme producing a short $(c, s)$ proof. Like Thin VRF, it
+prepends the Schnorr pair $(G, Y)$ to the I/O list and proves a single DLEQ
+on the delinearized merged pair. The challenge scalar $c$ is stored instead
+of the nonce commitment, yielding a smaller proof at the cost of not
+supporting batch verification.
+
+**Security**: VRF input points MUST be constructed via hash-to-curve. If a
+prover knows $d$ such that $I = d \cdot G$, they can forge arbitrary outputs
+for that input, because the delinearization merges the Schnorr and VRF pairs
+into a single check that collapses when all points are multiples of $G$.
+
+**Proof encoding**: The challenge $c$ is produced by squeezing
+$\texttt{challenge\_len}$ bytes from the transcript. Since $2^{8 \cdot \texttt{challenge\_len}} < r$,
+no modular reduction occurs and $c$ is encoded as its raw $\texttt{challenge\_len}$-byte
+little-endian representation. The scalar $s$ is encoded via $\texttt{enc\_scalar}$ (32 bytes).
+The total proof size is $\texttt{challenge\_len} + 32$ bytes. Verifiers MUST reject
+proofs where $c \geq 2^{8 \cdot \texttt{challenge\_len}}$.
 
 ## 2.1. Prove
 
@@ -349,10 +364,10 @@ RFC-9381 implementations and test vectors.
 **Steps**:
 
 1. $Y \gets x \cdot G$
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{TinyVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
 3. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
-4. $U \gets k \cdot G$, $\quad V \gets k \cdot I_m$
-5. $c \gets \texttt{challenge}([U, V], T)$
+4. $R \gets k \cdot I_m$
+5. $c \gets \texttt{challenge}([R], T)$
 6. $s \gets k + c \cdot x$
 7. $\pi \gets (c, s)$
 
@@ -372,27 +387,18 @@ RFC-9381 implementations and test vectors.
 **Steps**:
 
 1. Validate $Y$ and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{IetfVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
-3. $U \gets s \cdot G - c \cdot Y$
-4. $V \gets s \cdot I_m - c \cdot O_m$
-5. $c' \gets \texttt{challenge}([U, V], T)$
-6. $\theta \gets \top \text{ if } c = c' \text{ else } \bot$
+2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{TinyVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
+3. $R \gets s \cdot I_m - c \cdot O_m$
+4. $c' \gets \texttt{challenge}([R], T)$
+5. $\theta \gets \top \text{ if } c = c' \text{ else } \bot$
 
 # 3. Thin VRF
 
-Thin VRF is derived from the PedVRF construction in section 4 of
-[BCHSV23] [@BCHSV23] by removing the blinding mechanism entirely (see remark
-on page 13 of the paper). Without blinding, Pedersen VRF reduces to two
-independent DLEQ checks on $(G, Y)$ and $(I_m, O_m)$ with the same secret $x$.
-Thin VRF merges these into a single DLEQ relation by prepending $(G, Y)$ to
-the I/O pairs and applying delinearization, then proves it with a Schnorr-like
-proof $(R, s)$. Storing the nonce commitment $R$ (rather than the challenge $c$)
-enables batch verification.
-
-**Security**: VRF input points MUST be constructed via hash-to-curve. If a
-prover knows $d$ such that $I = d \cdot G$, they can forge arbitrary outputs
-for that input, because the delinearization merges the Schnorr and VRF pairs
-into a single check that collapses when all points are multiples of $G$.
+Thin VRF is structurally similar to Tiny VRF: it prepends $(G, Y)$ to the I/O
+pairs, applies delinearization, and proves a single DLEQ on the merged pair.
+The difference is the proof format: Thin VRF stores the nonce commitment $R$
+rather than the challenge $c$, which enables batch verification at the cost
+of a slightly larger proof.
 
 ## 3.1. Prove
 
@@ -480,7 +486,7 @@ T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{ThinBatch} \\
 
 # 4. Pedersen VRF
 
-Pedersen VRF resembles IETF EC-VRF but replaces the public key with a Pedersen
+Pedersen VRF resembles Tiny VRF but replaces the public key with a Pedersen
 commitment to the secret key, which makes this VRF useful in anonymized ring
 proofs.
 
@@ -822,7 +828,7 @@ When $n = 0$ no VRF output can be derived, since there are no output points
 to hash. The proof-of-knowledge component, however, remains sound in all
 schemes: a valid proof still requires knowledge of the secret key $x$.
 
-- **IETF VRF and Thin VRF**: Both schemes prepend the Schnorr pair $(G, Y)$
+- **Tiny VRF and Thin VRF**: Both schemes prepend the Schnorr pair $(G, Y)$
   to the I/O list before delinearization (sections 2.1 and 3.1, step 2),
   so the internal pair count is at least 1 regardless of the user-supplied $n$.
   With zero VRF pairs, the scheme degenerates to a Schnorr signature on the
@@ -839,9 +845,9 @@ schemes: a valid proof still requires knowledge of the secret key $x$.
 # Appendix C. Test Vectors
 
 The test vectors in this section were generated using `ark-vrf` libraries
-revision `c01eee3`.
+revision `474a8c2`.
 
-## C.1. IETF VRF Test Vectors
+## C.1. Tiny VRF Test Vectors
 
 Schema:
 
@@ -857,7 +863,7 @@ proof_c: Proof 'c' component,
 proof_s: Proof 's' component,
 ```
 
-### bandersnatch_sha-512_ell2_ietf - vector-1
+### bandersnatch_sha-512_ell2_tiny - vector-1
 
 ```
 02bc4e98404607ce56429007e6ec20a2c0cb2070fd77bb377d25c83afff4670c,
@@ -867,11 +873,11 @@ proof_s: Proof 's' component,
 9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
 45ee3e316c29dc0d5c2490ad14f4c1ebafbedf897d3663406e08acaef865a586,
 b963d3ab9dd2e29a172aee407cb18def053e08d43d6b50bf04544c448a3edcd6,
-6032c5002f9cb3ccda4f29086798bacf,
-2fa2c286ff35bd29bc2c5f7f7fa5c4032766ca4e95874b14b1624e88b223ff08,
+379ab2057954e53ee6f87ae6e2c37264,
+de34b47d6c665908d0d58d70b58a98b0c3ee0005706f5d2af4761a463e7b4e12,
 ```
 
-### bandersnatch_sha-512_ell2_ietf - vector-2
+### bandersnatch_sha-512_ell2_tiny - vector-2
 
 ```
 c5410a37c4dac5e7a0f02c2df9073a70b8c16d9c786c054b70f7502741c64f14,
@@ -881,11 +887,11 @@ dc9f6c647b3fe0b3248d6afb2d305d75b421b9e697e0eaff913e59dae68a76cc,
 a208afb3b276ef91530ce906abe1e64917b612b6e062a0bb93090c77d9c5ba95,
 331bc541947a27c518a7101db25b20878bc075ccdbf15f22243d4b7cf87cd8bb,
 24884e2a38ba6a7bdd6016be94cf09bc26306c0d649c67d4ed5e3ecd07ed690d,
-8171a0d99191fb5fc2995421d3af66cc,
-e625c8bd52dddb57199521c1f13176b1765e163a89cbe874db23ce341d9b8601,
+087e5b3250476e489d36b6a79103759f,
+51744a80e826219da4303b3d0b0b96c1a1eff2086492c354da3438a062e7641a,
 ```
 
-### bandersnatch_sha-512_ell2_ietf - vector-3
+### bandersnatch_sha-512_ell2_tiny - vector-3
 
 ```
 783510ef50915b52075650aa994085d36d513e259115fa408ac67f1398814605,
@@ -895,11 +901,11 @@ e625c8bd52dddb57199521c1f13176b1765e163a89cbe874db23ce341d9b8601,
 9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
 28c86b6880842180b972a94696703d6b489f8f03a3c280d9d3047017380e0baa,
 1c8c9baf9d6b691be3db3302bd64c56880f9468bb4e98ffcb545a56876717fd3,
-10948ba42b50dabb71aff44868e7ef4f,
-67e5471d81aa5eaab68a89a93094b751f72f9834693cfc392aad75a7b71ac302,
+0a9e701c83b6a3ae679b028e99a76b91,
+dd7cf5b4e257cb64e7a9c1e4aadd1db1cf2aafcc0f304b54436c6e06feefdd19,
 ```
 
-### bandersnatch_sha-512_ell2_ietf - vector-4
+### bandersnatch_sha-512_ell2_tiny - vector-4
 
 ```
 ac162d824faac7fb45ffd6f52acc819537139a5a3027e16d2736b84e3904301c,
@@ -909,11 +915,11 @@ ac162d824faac7fb45ffd6f52acc819537139a5a3027e16d2736b84e3904301c,
 f534e99a16886cb60e3672a9bcd65b57ec8a76a3d3f005850e9b38ea17d81636,
 b7d8e88cdb0dfe99bba76e5693d4d562c7fa8cd06d84502582aea9f8ab0b0d8a,
 8f006754011b549653e3796fda62c5fd9d0d3c5913e1737fdb638e9bf53879d2,
-6d2f2bfb41fe81f77b2ee671cbe2183f,
-b5c4a230641cbbf0decb7d8d916b01e6d6db9cf0157104c2cf24a12829e7150b,
+9ddc02aaf383065f5d11ab5e15876153,
+48a804a7396a18fa1c1ad97c3470e2b8ee9ba3ae5f750c2f0efc2c4a8d285c18,
 ```
 
-### bandersnatch_sha-512_ell2_ietf - vector-5
+### bandersnatch_sha-512_ell2_tiny - vector-5
 
 ```
 9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
@@ -923,11 +929,11 @@ b5c4a230641cbbf0decb7d8d916b01e6d6db9cf0157104c2cf24a12829e7150b,
 47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
 819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
 2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
-a82255b6b29d70f2d024d90246212d6a,
-83c2b1baf0e8cd05386bc98a81c8dec06ad5e383940c593364b0b6de2fa9fd0d,
+7d6ce230bc6ccac30d5059ded0e96d3e,
+93ff3c7aac60a8903639c9aa18fff70d67dfb30d4e195323f68724a56d2d360f,
 ```
 
-### bandersnatch_sha-512_ell2_ietf - vector-6
+### bandersnatch_sha-512_ell2_tiny - vector-6
 
 ```
 9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
@@ -937,11 +943,11 @@ a82255b6b29d70f2d024d90246212d6a,
 47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
 819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
 2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
-1f00564908115c4162eead4136f371bb,
-b5d08cd00512786bccc3a87179b13382bfb44b371527fc42007fdbe44fcc1f01,
+aef5699cddc5d8ac47d6508873c5028a,
+89382e80eb82fe559ec58ad64d2dff2c71afdd56beab02ab93662521d2341405,
 ```
 
-### bandersnatch_sha-512_ell2_ietf - vector-7
+### bandersnatch_sha-512_ell2_tiny - vector-7
 
 ```
 76f8b81d866b4c8b89d1f7d40954c406ad3b6c33e2bb8ece9102d7a4f8483502,
@@ -951,8 +957,8 @@ b5d08cd00512786bccc3a87179b13382bfb44b371527fc42007fdbe44fcc1f01,
 47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
 a2332c9646371ec14e3ba6ac3ae8ea93a65159dec7dcd2e5c022e14bdf7395b3,
 26ea4ea18ba21e48b1c0a658fc1a4600f21c6957f6cc85e1209e69b77dc1eab6,
-e6ff791f65e3f3b2cd502ebf75726c1a,
-77a4db336448448b3e611e37c01290dd08132d0263c67249a25f34d2e461f31c,
+63900a66aa5d8066e1094f3c273fcf67,
+d06f1190690bb00b1a1012e693cacaaee306f9b725a35c62859fc0b081125606,
 ```
 
 ## C.2. Thin VRF Test Vectors
