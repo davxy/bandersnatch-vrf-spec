@@ -4,7 +4,7 @@ use ark_vrf::reexports::{
 };
 use ark_vrf::{pedersen::PedersenSuite, ring::RingSuite, suites::bandersnatch, VrfIo};
 use bandersnatch::{
-    AffinePoint, BandersnatchSha512Ell2, IetfProof, Input, Output, Public, RingProof,
+    AffinePoint, BandersnatchSha512Ell2, TinyProof, Input, Output, Public, RingProof,
     RingProofParams, Secret,
 };
 
@@ -15,7 +15,7 @@ const RING_SIZE: usize = 1023;
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
 struct IetfVrfSignature {
     output: Output,
-    proof: IetfProof,
+    proof: TinyProof,
 }
 
 // This is the IETF `Prove` procedure output as described in section 4.2
@@ -110,7 +110,7 @@ impl Prover {
     /// Used for ticket claiming during block production.
     /// Not used with Safrole test vectors.
     pub fn ietf_vrf_sign(&self, vrf_input_data: &[u8], aux_data: &[u8]) -> Vec<u8> {
-        use ark_vrf::ietf::Prover as _;
+        use ark_vrf::tiny::Prover as _;
 
         let input = vrf_input_point(vrf_input_data);
         let output = self.secret.output(input);
@@ -196,7 +196,7 @@ impl Verifier {
         signature: &[u8],
         signer_key_index: usize,
     ) -> Result<[u8; 32], ()> {
-        use ark_vrf::ietf::Verifier as _;
+        use ark_vrf::tiny::Verifier as _;
 
         let signature = IetfVrfSignature::deserialize_compressed(signature).unwrap();
 
