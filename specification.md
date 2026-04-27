@@ -839,8 +839,7 @@ schemes: a valid proof still requires knowledge of the secret key $x$.
 
 # Appendix C. Test Vectors
 
-The test vectors in this section were generated using `ark-vrf` libraries
-revision `b22ae6d`.
+The test vectors in this section were generated using `ark-vrf` version `0.5.0`.
 
 ## C.1. Tiny VRF Test Vectors
 

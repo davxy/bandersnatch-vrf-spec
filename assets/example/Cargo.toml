@@ -5,8 +5,7 @@ edition = "2024"
 publish =  false
 
 [dependencies]
-ark-vrf = { version = "0.5.0", features = ["bandersnatch", "ring", "asm"], path = "/mnt/ssd/develop/crypto/ark-vrf" }
-# ark-vrf = { version = "0.5.0", features = ["bandersnatch", "ring", "asm"] }
+ark-vrf = { version = "0.5.0", features = ["bandersnatch", "ring", "asm"] }
 hex = "0.4.3"
 
 # Deterministic ring proof.
