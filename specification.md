@@ -3,7 +3,7 @@ title: Bandersnatch VRF-AD Specification
 author:
   - Davide Galassi
   - Seyed Hosseini
-date: 2 Apr 2026 - Draft 33
+date: 27 Apr 2026 - Draft 34
 ---
 
 \newcommand{\G}{\bold{G}}
@@ -83,20 +83,13 @@ via $\texttt{enc\_32}$ in the VRF transcript (section 1.6.5).
 
 ## 1.4. Constants
 
-- `suite_id` = `[0x01, 0x01, 0x01, 0x01]` — a 4-byte fixed-width identifier encoding
-  the protocol profile:
-
-| Name | Byte | Value | Meaning |
-|---|---|---|---|
-| version | 0 | 0x01 | Suite version (v1) |
-| curve | 1 | 0x01 | Bandersnatch |
-| hash | 2 | 0x01 | SHA-512 |
-| h2c | 3 | 0x01 | Elligator 2, random oracle |
-
-  The version byte bundles several tightly-coupled choices: transcript construction
-  (HashTranscript), nonce algorithm (RFC-8032), challenge derivation (transcript
-  squeeze), point encoding (compressed little-endian), and security level (128-bit).
-  Bump this byte when any of these changes.
+- `suite_id` = `"Bandersnatch-SHA512-ELL2"` — the 24-byte ASCII string identifying the
+  cipher suite. It bundles several tightly-coupled choices: curve (Bandersnatch in
+  Twisted Edwards form), transcript construction (HashTranscript over SHA-512),
+  nonce algorithm (RFC-8032 inspired), challenge derivation (transcript squeeze),
+  point encoding (compressed little-endian), hash-to-curve (Elligator 2 random
+  oracle), and security level (128-bit). Change the string when any of these
+  changes.
 
 - `challenge_len` = 16 bytes (128-bit security).
 - `expanded_scalar_len` = $\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil$ = 48 bytes.
@@ -114,8 +107,8 @@ Domain separation tags used throughout the protocol:
 | PointToHash | 0x20 | VRF output hashing |
 | Delinearize | 0x30 | Delinearization scalars |
 | Challenge | 0x40 | Challenge derivation |
-| ThinBatch | 0x50 | Thin VRF batch verification |
-| PedersenBatch | 0x51 | Pedersen VRF batch verification |
+| BatchVerify | 0x50 | Batch verification randomization |
+| HashToCurve | 0x60 | Hash-to-curve domain separation |
 
 ## 1.5. Codec
 
@@ -469,7 +462,7 @@ lemma).
 
 2. Derive random weights:
    a. $T_w \gets \texttt{new\_transcript}()$
-   b. $T_w.\texttt{absorb}(\texttt{ThinBatch})$
+   b. $T_w.\texttt{absorb}(\texttt{BatchVerify})$
    c. For each $j$: $T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j))$
 
 3. Check the combined equation:
@@ -479,7 +472,7 @@ lemma).
 **Transcript**:
 
 $\begin{aligned}
-T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{ThinBatch} \\
+T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{BatchVerify} \\
   &\; \Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \cdots \;\Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1})
 \end{aligned}$
 
@@ -502,8 +495,8 @@ generation procedure.
 
 The *blinding base* $B \in \G$ is defined as:
 $$\footnotesize\begin{aligned}
-x &= 5226425992571220769365843487102064307101272980791993134273780736997544949382 \\
-y &= 46544868206883149332782258938702216106598247683423727002885664111567608220426
+x &= 2035996659106347027231843009894751612317716910942125238709394115821582620399 \\
+y &= 45658295857182261137200330826382983531055622672653801121971633713275795694044
 \end{aligned}$$
 
 A point with unknown discrete logarithm derived using the `hash_to_curve` function
@@ -598,7 +591,7 @@ commitment correctness), each weighted by an independent random scalar.
 
 2. Derive random weights:
    a. $T_w \gets \texttt{new\_transcript}()$
-   b. $T_w.\texttt{absorb}(\texttt{PedersenBatch})$
+   b. $T_w.\texttt{absorb}(\texttt{BatchVerify})$
    c. For each $j$: $T_w.\texttt{absorb}(\texttt{enc\_scalar}(c_j) \;\Vert\; \texttt{enc\_scalar}(s_j) \;\Vert\; \texttt{enc\_scalar}(s_{b,j}))$
 
 3. Check the combined equations:
@@ -610,7 +603,7 @@ commitment correctness), each weighted by an independent random scalar.
 **Transcript**:
 
 $\begin{aligned}
-T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{PedersenBatch} \\
+T_w = &\; \texttt{suite\_id} \;\Vert\; \texttt{BatchVerify} \\
   &\; \Vert\; \texttt{enc\_scalar}(c_0) \;\Vert\; \texttt{enc\_scalar}(s_0) \;\Vert\; \texttt{enc\_scalar}(s_{b,0}) \\
   &\; \Vert\; \cdots \\
   &\; \Vert\; \texttt{enc\_scalar}(c_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{N-1}) \;\Vert\; \texttt{enc\_scalar}(s_{b,N-1})
@@ -648,8 +641,8 @@ The following configuration specializes it for this scheme:
 
 - Accumulator base point $S \in \G$ is defined as:
 $$\footnotesize\begin{aligned}
-x &= 42303668360647658687880456753606405401141031996216729331450763906967498848487 \\
-y &= 41898972259388202032055565840730004413653698329702630697317353721966090663285
+x &= 16694082298476211322146772242502885282285019951942003725400283854213354132169 \\
+y &= 3984482500670880510122500361427819834225058783213717391641528393088138818906
 \end{aligned}$$
 
 A point with unknown discrete logarithm derived using the `hash_to_curve` function
@@ -657,8 +650,8 @@ as described in Appendix A.2 with input the string: `"ring-accumulator"`.
 
 - Padding point $\square \in \G$ is defined as:
 $$\footnotesize\begin{aligned}
-x &= 29586100106858075217954567072572265001347911471605742544678436487322334776392 \\
-y &= 21753411410084671346581650250322348778806357231808407562422401169820213423498
+x &= 4402102242935417179871831084241429782095672201912973408557750418598048316572 \\
+y &= 10958542895453316083794025818390929159397855597085770403103690185444830671348
 \end{aligned}$$
 
 A point with unknown discrete logarithm derived using the `hash_to_curve` function
@@ -739,8 +732,9 @@ unambiguous given the inputs agreed upon by both parties.
 **Squeeze** (counter-mode XOF): on the first squeeze call, finalize the SHA-512
 state to obtain a 64-byte $seed$. Then produce output blocks:
 
-$$block_i = \text{SHA-512}(seed \;\Vert\; \texttt{enc\_32}(i)) \quad \text{for } i = 0, 1, 2, \ldots$$
+$$block_i = \text{SHA-512}(seed \;\Vert\; \texttt{enc\_64}(i)) \quad \text{for } i = 0, 1, 2, \ldots$$
 
+where $\texttt{enc\_64}(n)$ encodes integer $n$ as an 8-byte little-endian octet string.
 Each block yields 64 bytes. Output is read sequentially across blocks; partial
 block state is preserved between squeeze calls.
 
@@ -762,10 +756,11 @@ $$I \gets \texttt{hash\_to\_curve\_ell2}(DST, i)$$
 
 The domain separation tag is:
 
-$$DST = \text{"ECVRF\_"} \;\Vert\; \texttt{h2c\_suite\_id} \;\Vert\; \texttt{suite\_id}$$
+$$DST = \texttt{suite\_id} \;\Vert\; \texttt{HashToCurve}$$
 
-where `h2c_suite_id` = `"Bandersnatch_XMD:SHA-512_ELL2_RO_"` is the RFC-9380
-suite identifier string determined by the curve, hash, and h2c bytes of `suite_id`.
+i.e. the 24-byte $\texttt{suite\_id}$ string concatenated with the single
+$\texttt{HashToCurve}$ tag byte (0x60). This matches the per-operation
+tagging used elsewhere in the protocol.
 
 ## A.3. Secret Key Generation
 
@@ -845,7 +840,7 @@ schemes: a valid proof still requires knowledge of the secret key $x$.
 # Appendix C. Test Vectors
 
 The test vectors in this section were generated using `ark-vrf` libraries
-revision `474a8c2`.
+revision `f3ba9dd`.
 
 ## C.1. Tiny VRF Test Vectors
 
@@ -866,99 +861,99 @@ proof_s: Proof 's' component,
 ### bandersnatch_sha-512_ell2_tiny - vector-1
 
 ```
-02bc4e98404607ce56429007e6ec20a2c0cb2070fd77bb377d25c83afff4670c,
-05727c7bdb1a03a985bac26b26f4840730336e9f1aedcdc829e0e95ae5e80936,
+469f3c9f791dd38a44bf44a4393398664c065fa742c46618115f6881445b6c02,
+b5efd1caf6873c10bd351992a72182718417063fc67f30cdbafe335a6c5efaeb,
 -,
 -,
-9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
-45ee3e316c29dc0d5c2490ad14f4c1ebafbedf897d3663406e08acaef865a586,
-b963d3ab9dd2e29a172aee407cb18def053e08d43d6b50bf04544c448a3edcd6,
-379ab2057954e53ee6f87ae6e2c37264,
-de34b47d6c665908d0d58d70b58a98b0c3ee0005706f5d2af4761a463e7b4e12,
+507b8f930c8559d29b409054f5aacc435b3756c37ee6f38ba55678961a63013f,
+bcc83458ca7f51de0cd2fe921df735d82affba6f5dd269e3d3a90f455e3cf293,
+975a5998db2b2701027c00986ac7c5d50e13616dd4f2468bbb2993884cda9f6a,
+2fb0931872cce701a92fb83d34cf3a1b,
+db8a1609d23a04f069a4c9e37a8b88f626126583c2ef1de2a3f351d891592f15,
 ```
 
 ### bandersnatch_sha-512_ell2_tiny - vector-2
 
 ```
-c5410a37c4dac5e7a0f02c2df9073a70b8c16d9c786c054b70f7502741c64f14,
-dc9f6c647b3fe0b3248d6afb2d305d75b421b9e697e0eaff913e59dae68a76cc,
+6b750d2754ebaf3163bd2b9a1ffb0137de1096c53467a75ee0625c133a4b101b,
+d6351fb4f9dcb616f34b2b48a94acabf8faf769018f20457d56156076501a9b5,
 0a,
 -,
-a208afb3b276ef91530ce906abe1e64917b612b6e062a0bb93090c77d9c5ba95,
-331bc541947a27c518a7101db25b20878bc075ccdbf15f22243d4b7cf87cd8bb,
-24884e2a38ba6a7bdd6016be94cf09bc26306c0d649c67d4ed5e3ecd07ed690d,
-087e5b3250476e489d36b6a79103759f,
-51744a80e826219da4303b3d0b0b96c1a1eff2086492c354da3438a062e7641a,
+bf5904142f7fff1a333ec352f02e07d368bb437f77a1159fae0480b9bc444dbf,
+e0e64cc4b110dd4d8a6d1c2c6d900f1b36c19bd5c6a847849650d8837a6c2af3,
+7e04da6e16cc9a19888d9a9861c14d20959e183177086645e9716066c51259c7,
+f5c7d0a468fd4b0bf263a59d1504fc7c,
+35baf5eaa7763ec01cbf68111bc3954a4c171e75934debdfb442f55da0c1fe04,
 ```
 
 ### bandersnatch_sha-512_ell2_tiny - vector-3
 
 ```
-783510ef50915b52075650aa994085d36d513e259115fa408ac67f1398814605,
-689ccd15496386db306024633493e60135a2673faad2b0b4140a4006537c71b8,
+d65e63da3835b1cbd4a56743b33465b991893271be22970f213899fddfdf451c,
+b27d1ca12ede738d0909705d2dc69d7aca8b7fb3f451db3721cb92baf7f75bad,
 -,
 0b8c,
-9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
-28c86b6880842180b972a94696703d6b489f8f03a3c280d9d3047017380e0baa,
-1c8c9baf9d6b691be3db3302bd64c56880f9468bb4e98ffcb545a56876717fd3,
-0a9e701c83b6a3ae679b028e99a76b91,
-dd7cf5b4e257cb64e7a9c1e4aadd1db1cf2aafcc0f304b54436c6e06feefdd19,
+507b8f930c8559d29b409054f5aacc435b3756c37ee6f38ba55678961a63013f,
+014e64809463cfef1e2fce8eddc3af72402a5d20981549fd14f75d3a961efec9,
+8789e98c6b52051328e1f7513f735e623e7d46463e11b9650bb8f2097a84280f,
+80a69351c31f5f661043a1753a83c2e5,
+a69e799abc5317d509637971164b83b50d353006810ff6e2bedb1dcded792302,
 ```
 
 ### bandersnatch_sha-512_ell2_tiny - vector-4
 
 ```
-ac162d824faac7fb45ffd6f52acc819537139a5a3027e16d2736b84e3904301c,
-566dd2374ae7621fb6910143f1f5fa91b7bfce2db27a731cf110a27309b94667,
+23af4703982081016292d2873cd291eaed09bae027a0ffa027b8d906dba50916,
+ccd66b701aa97824a42bbb748dabd371f3eb0ce29352a749073afd4f39369cea,
 73616d706c65,
 -,
-f534e99a16886cb60e3672a9bcd65b57ec8a76a3d3f005850e9b38ea17d81636,
-b7d8e88cdb0dfe99bba76e5693d4d562c7fa8cd06d84502582aea9f8ab0b0d8a,
-8f006754011b549653e3796fda62c5fd9d0d3c5913e1737fdb638e9bf53879d2,
-9ddc02aaf383065f5d11ab5e15876153,
-48a804a7396a18fa1c1ad97c3470e2b8ee9ba3ae5f750c2f0efc2c4a8d285c18,
+e6952ff094431bdf3292564f316b472e567a47161feb20e48adcd9e4943a912a,
+20ae74617586e0e357706b6c1e2775b4efb8c2a6766b5d10bc69b824b53e2039,
+13ddeab303bdaa180338ff7f2821b48142a0b4d0a29b26e9fc8b847c38712be4,
+012e34921430062fa11721655cf5df20,
+b831d6c5c5f347066aece5425f8711256c2b9612d30159980b777bea36b8c51b,
 ```
 
 ### bandersnatch_sha-512_ell2_tiny - vector-5
 
 ```
-9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
-0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
+d3474b24545500bf46e4cab5eaaf7b3778d92fea7d60339d2c04f14787b54216,
+6d972e05ba078b9b1452c7f407a11499d78c951bbc75f29dc39da267f038fee3,
 42616e646572736e6174636820766563746f72,
 -,
-47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
-819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
-2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
-7d6ce230bc6ccac30d5059ded0e96d3e,
-93ff3c7aac60a8903639c9aa18fff70d67dfb30d4e195323f68724a56d2d360f,
+73068394e07bca18a291338b07bca6db4375dd003fb6202eb70765dae1cccd48,
+f7245e2d4f92bfcb731ffc065aa940659bf28d7ad857650f21e3b8312f75d602,
+52444c24a837fd222430b317078d5e1ab52c12944089f523c34907c752f4f81a,
+453340e4fd3a190a12a0276fc88d80bc,
+42fb97207d1893ff7b3606c69b45ea1f4ed73430c4faff496eff79a903db0704,
 ```
 
 ### bandersnatch_sha-512_ell2_tiny - vector-6
 
 ```
-9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
-0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
+d3474b24545500bf46e4cab5eaaf7b3778d92fea7d60339d2c04f14787b54216,
+6d972e05ba078b9b1452c7f407a11499d78c951bbc75f29dc39da267f038fee3,
 42616e646572736e6174636820766563746f72,
 1f42,
-47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
-819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
-2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
-aef5699cddc5d8ac47d6508873c5028a,
-89382e80eb82fe559ec58ad64d2dff2c71afdd56beab02ab93662521d2341405,
+73068394e07bca18a291338b07bca6db4375dd003fb6202eb70765dae1cccd48,
+f7245e2d4f92bfcb731ffc065aa940659bf28d7ad857650f21e3b8312f75d602,
+52444c24a837fd222430b317078d5e1ab52c12944089f523c34907c752f4f81a,
+31c198ae4a808d320855aece9d7fa357,
+bd6a404040a7fccdd3f6524a31120e79d12a6d60898c6270dde08b99df435109,
 ```
 
 ### bandersnatch_sha-512_ell2_tiny - vector-7
 
 ```
-76f8b81d866b4c8b89d1f7d40954c406ad3b6c33e2bb8ece9102d7a4f8483502,
-0384ac15569e3147105862c293863fa47aed4718b5fd791cc689fbfa7e8ce75c,
+d3ca62c2eff12acf77b6745a0a4ef633bbd87d44c163dea26bfd57ad6ddce80b,
+a05f85d1afd54269db4e51d4a0aa7dada0ba0b20d00e21dbcafc96afcc87bd34,
 42616e646572736e6174636820766563746f72,
 1f42,
-47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
-a2332c9646371ec14e3ba6ac3ae8ea93a65159dec7dcd2e5c022e14bdf7395b3,
-26ea4ea18ba21e48b1c0a658fc1a4600f21c6957f6cc85e1209e69b77dc1eab6,
-63900a66aa5d8066e1094f3c273fcf67,
-d06f1190690bb00b1a1012e693cacaaee306f9b725a35c62859fc0b081125606,
+73068394e07bca18a291338b07bca6db4375dd003fb6202eb70765dae1cccd48,
+38eefb096193eb94d8ffe21340e123c69205c213afc18b5df6c0ebfc9d94f45b,
+a4df10b7839ec0f64d364e97f5b37e470595412d8c2c5adc30558e95f292e0bd,
+2fa93e3e1af4a14542cca2d4d384bcaa,
+e24e20dfaba3c93c4a22419eccf7b7bde422b6a82d048b0e3ffb816b188c690b,
 ```
 
 ## C.2. Thin VRF Test Vectors
@@ -978,99 +973,99 @@ proof_s: Proof 's' component,
 ### bandersnatch_sha-512_ell2_thin - vector-1
 
 ```
-02bc4e98404607ce56429007e6ec20a2c0cb2070fd77bb377d25c83afff4670c,
-05727c7bdb1a03a985bac26b26f4840730336e9f1aedcdc829e0e95ae5e80936,
+469f3c9f791dd38a44bf44a4393398664c065fa742c46618115f6881445b6c02,
+b5efd1caf6873c10bd351992a72182718417063fc67f30cdbafe335a6c5efaeb,
 -,
 -,
-9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
-45ee3e316c29dc0d5c2490ad14f4c1ebafbedf897d3663406e08acaef865a586,
-b963d3ab9dd2e29a172aee407cb18def053e08d43d6b50bf04544c448a3edcd6,
-28ba4a40d25d6875c1e1ddb888a609156856a684513580a559496e21c9ea3cdf,
-41ac847238e6b2fff7b2b476ebbb6cd6f92b024bdfa5fe8aac85f1d4c64fe913,
+507b8f930c8559d29b409054f5aacc435b3756c37ee6f38ba55678961a63013f,
+bcc83458ca7f51de0cd2fe921df735d82affba6f5dd269e3d3a90f455e3cf293,
+975a5998db2b2701027c00986ac7c5d50e13616dd4f2468bbb2993884cda9f6a,
+0bc378d2bb80aa89413bc2db01972b4d284ae3786f0084265d2a4062d38a4005,
+9a6806395b36e8deff21469f68f217a8ba5cbedf714a0b8857ea4bd50ae8b405,
 ```
 
 ### bandersnatch_sha-512_ell2_thin - vector-2
 
 ```
-c5410a37c4dac5e7a0f02c2df9073a70b8c16d9c786c054b70f7502741c64f14,
-dc9f6c647b3fe0b3248d6afb2d305d75b421b9e697e0eaff913e59dae68a76cc,
+6b750d2754ebaf3163bd2b9a1ffb0137de1096c53467a75ee0625c133a4b101b,
+d6351fb4f9dcb616f34b2b48a94acabf8faf769018f20457d56156076501a9b5,
 0a,
 -,
-a208afb3b276ef91530ce906abe1e64917b612b6e062a0bb93090c77d9c5ba95,
-331bc541947a27c518a7101db25b20878bc075ccdbf15f22243d4b7cf87cd8bb,
-24884e2a38ba6a7bdd6016be94cf09bc26306c0d649c67d4ed5e3ecd07ed690d,
-4bbffe40e38b580372cc5dc1bfed6da3f0cbf2ff8a8058a2e0b840cffae18947,
-459d5f7739b629ae8717ded2a072ec12573c0224b1197a4cb09286cb3977e51a,
+bf5904142f7fff1a333ec352f02e07d368bb437f77a1159fae0480b9bc444dbf,
+e0e64cc4b110dd4d8a6d1c2c6d900f1b36c19bd5c6a847849650d8837a6c2af3,
+7e04da6e16cc9a19888d9a9861c14d20959e183177086645e9716066c51259c7,
+1091f3fedd369ade45c43a485d4d01f48fc74105ebf31087086f28104ecd7707,
+14a9dcb918337b9f23d9098665207a20bc60b7b588d1d1f729209fce6b247e19,
 ```
 
 ### bandersnatch_sha-512_ell2_thin - vector-3
 
 ```
-783510ef50915b52075650aa994085d36d513e259115fa408ac67f1398814605,
-689ccd15496386db306024633493e60135a2673faad2b0b4140a4006537c71b8,
+d65e63da3835b1cbd4a56743b33465b991893271be22970f213899fddfdf451c,
+b27d1ca12ede738d0909705d2dc69d7aca8b7fb3f451db3721cb92baf7f75bad,
 -,
 0b8c,
-9646c575af23c811c5d4691a26121c845b80a3805452c7267c2dbe2110baa6e3,
-28c86b6880842180b972a94696703d6b489f8f03a3c280d9d3047017380e0baa,
-1c8c9baf9d6b691be3db3302bd64c56880f9468bb4e98ffcb545a56876717fd3,
-480a2cc4b53dafd3c0f65d70c9c5dac6edb7013a81ea6516987ac38743942cf3,
-0db4d5d1f6d98ec4deaf4768d5c457c57942210f422e7f3c4af167cf9e9e3a03,
+507b8f930c8559d29b409054f5aacc435b3756c37ee6f38ba55678961a63013f,
+014e64809463cfef1e2fce8eddc3af72402a5d20981549fd14f75d3a961efec9,
+8789e98c6b52051328e1f7513f735e623e7d46463e11b9650bb8f2097a84280f,
+927050c68c70094aea7f99001c9ca07ecb285e470b7b863ff7cd6d109e1121e2,
+14020058ed45594711a258687a88cda3cc9d404ea48e371c3b55d4213a28a901,
 ```
 
 ### bandersnatch_sha-512_ell2_thin - vector-4
 
 ```
-ac162d824faac7fb45ffd6f52acc819537139a5a3027e16d2736b84e3904301c,
-566dd2374ae7621fb6910143f1f5fa91b7bfce2db27a731cf110a27309b94667,
+23af4703982081016292d2873cd291eaed09bae027a0ffa027b8d906dba50916,
+ccd66b701aa97824a42bbb748dabd371f3eb0ce29352a749073afd4f39369cea,
 73616d706c65,
 -,
-f534e99a16886cb60e3672a9bcd65b57ec8a76a3d3f005850e9b38ea17d81636,
-b7d8e88cdb0dfe99bba76e5693d4d562c7fa8cd06d84502582aea9f8ab0b0d8a,
-8f006754011b549653e3796fda62c5fd9d0d3c5913e1737fdb638e9bf53879d2,
-41b292967fe1bf7ba1edc8d33f65daf7013f78b5aaa4767ec26de9d1b969998a,
-82bbd8b4649d092c2d5ecd2363e68fb80547ba6db8f7d4f23872c0fe2f9be90f,
+e6952ff094431bdf3292564f316b472e567a47161feb20e48adcd9e4943a912a,
+20ae74617586e0e357706b6c1e2775b4efb8c2a6766b5d10bc69b824b53e2039,
+13ddeab303bdaa180338ff7f2821b48142a0b4d0a29b26e9fc8b847c38712be4,
+02db2a64519641375a3dc02ceb129f8c249750059998076e2d92047b22f3e5cc,
+636f002cd228b6d54f6150a6a66069cca7b34b5e7b05ee86f62aed6b8d24e015,
 ```
 
 ### bandersnatch_sha-512_ell2_thin - vector-5
 
 ```
-9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
-0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
+d3474b24545500bf46e4cab5eaaf7b3778d92fea7d60339d2c04f14787b54216,
+6d972e05ba078b9b1452c7f407a11499d78c951bbc75f29dc39da267f038fee3,
 42616e646572736e6174636820766563746f72,
 -,
-47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
-819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
-2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
-faca93b4f00ef37596bff4f7f23d33621cf6d75df7b4dc91615cdafb7eb8a843,
-10e5943fcd69f3f470e3de7ea2edea41ce192255709048d6a3178ea17556c61b,
+73068394e07bca18a291338b07bca6db4375dd003fb6202eb70765dae1cccd48,
+f7245e2d4f92bfcb731ffc065aa940659bf28d7ad857650f21e3b8312f75d602,
+52444c24a837fd222430b317078d5e1ab52c12944089f523c34907c752f4f81a,
+557ea5924b36b48ddffc92ad09710a38ec24560a3a9294292680b0ae54eaa1de,
+dc9a2b79cae984da805fd3e1a2cd95af6d9911e811f9ca113972ce4243d7220d,
 ```
 
 ### bandersnatch_sha-512_ell2_thin - vector-6
 
 ```
-9b44b39c5b801e2c4c8d6ffec1438896d0dc85aa7105e09ddde213dca8112515,
-0505219b2b79f731c6ab9cda8e1c0d02f7f8862a6b7c7cdeb598f69e24edc9f1,
+d3474b24545500bf46e4cab5eaaf7b3778d92fea7d60339d2c04f14787b54216,
+6d972e05ba078b9b1452c7f407a11499d78c951bbc75f29dc39da267f038fee3,
 42616e646572736e6174636820766563746f72,
 1f42,
-47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
-819314355518debccaa1c713a71968575353cdd52d03a9fc8eca4bb2b21aa562,
-2b544ee79c45df398ea8c6abb24bc2915ff7055b20962f1cd26a783408d5f8f5,
-c283cb32a074b3b5852dd7ed3ab23615702795a566c7eb38298eb411fce81b17,
-349df96ce2eb8f99d09c26ebcf872e82bbebb77d3f1fb75d2b02accb195ba203,
+73068394e07bca18a291338b07bca6db4375dd003fb6202eb70765dae1cccd48,
+f7245e2d4f92bfcb731ffc065aa940659bf28d7ad857650f21e3b8312f75d602,
+52444c24a837fd222430b317078d5e1ab52c12944089f523c34907c752f4f81a,
+8328c6f6ddfb21e5788fb77ef2d8e3193d197725457bfb5a515fa6d91f9a8b9b,
+917973b874805f3251c48484f5fdcf00196d9fc3109d25d0e76d5bf3e38c430f,
 ```
 
 ### bandersnatch_sha-512_ell2_thin - vector-7
 
 ```
-76f8b81d866b4c8b89d1f7d40954c406ad3b6c33e2bb8ece9102d7a4f8483502,
-0384ac15569e3147105862c293863fa47aed4718b5fd791cc689fbfa7e8ce75c,
+d3ca62c2eff12acf77b6745a0a4ef633bbd87d44c163dea26bfd57ad6ddce80b,
+a05f85d1afd54269db4e51d4a0aa7dada0ba0b20d00e21dbcafc96afcc87bd34,
 42616e646572736e6174636820766563746f72,
 1f42,
-47a25c71b9fccb60c72c2f5f9851df8594a9d346cda259dcef6ab5e6e441b795,
-a2332c9646371ec14e3ba6ac3ae8ea93a65159dec7dcd2e5c022e14bdf7395b3,
-26ea4ea18ba21e48b1c0a658fc1a4600f21c6957f6cc85e1209e69b77dc1eab6,
-5a1319f8558ef88c632439acc5420f6388378621b9a10bac5206f8e6283a46bf,
-9d2e74084ad6cf7b150b24955a4b7241be7d255221e366fae478556f16ec0419,
+73068394e07bca18a291338b07bca6db4375dd003fb6202eb70765dae1cccd48,
+38eefb096193eb94d8ffe21340e123c69205c213afc18b5df6c0ebfc9d94f45b,
+a4df10b7839ec0f64d364e97f5b37e470595412d8c2c5adc30558e95f292e0bd,
+c866019fe05e072048d4542ce22899d27c0b246f98c399cabe7b0962b455830d,
+f54d085199ac31c9bcccc7b4684d9abb1a2cfffae3c0047d9a61e3dfd1fdd002,
 ```
 
 ## C.3. Pedersen VRF Test Vectors
