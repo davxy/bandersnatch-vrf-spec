@@ -555,13 +555,34 @@ committed key $\bar{Y}$ from the proof.
 
 ## 4.3. Unblinding
 
-To link a Pedersen VRF proof to a specific public key, the prover reveals
-the blinding factor $b$ and the verifier checks:
+Links a Pedersen VRF proof to a specific public key. The prover reveals the
+blinding factor $b$, and the verifier checks that the proof is valid and that
+its committed key opens to the claimed public key.
 
-$$\bar{Y} = Y + b \cdot B$$
+**Input**:
 
-where $Y \in \G \setminus \{\mathcal{O}\}$ is the claimed public key. The
-verifier MUST validate $Y$ before accepting the association.
+- $\overline{io} \in (\G \times \G)^n$: VRF input/output pairs.
+- $ad \in \S^*$: Additional data octet-string.
+- $\pi = (\bar{Y}, R, O_k, s, s_b) \in (\G, \G, \G, \F, \F)$: Pedersen proof.
+- $b \in \F$: Blinding factor revealed by the prover.
+- $Y \in \G$: Claimed public key.
+
+**Output**:
+
+- $\theta \in \{ \top, \bot \}$: $\top$ if the proof is attributable to $Y$, $\bot$ otherwise.
+
+**Steps**:
+
+1. Validate $Y$ and $\bar{Y}$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if either is invalid or the identity.
+2. $\theta_0 \gets Pedersen.verify(\overline{io}, ad, \pi)$ (section 4.2)
+3. $\theta_1 \gets \top \text{ if } \bar{Y} = Y + b \cdot B \text{ else } \bot$
+4. $\theta \gets \theta_0 \land \theta_1$
+
+The verifier MUST NOT accept the association unless step 2 outputs $\top$ for
+the same $(\overline{io}, ad, \pi)$ that supplied $\bar{Y}$. Step 3 on its own
+is not evidence of authorship: any party can compute $\bar{Y} = Y + b \cdot B$
+for a public key $Y$ it does not control, without knowledge of the
+corresponding secret key.
 
 ## 4.4. Batch Verify
 
@@ -705,6 +726,13 @@ defined in [VG24] [@VG24].
 2. $(\bar{Y}, R, O_k, s, s_b) \gets \pi_p$
 3. $\theta_1 \gets Ring.verify(V, \pi_r, \bar{Y})$
 4. $\theta \gets \theta_0 \land \theta_1$
+
+Note: to attribute a ring signature to a public key, apply the unblinding
+procedure of section 4.3 to $\pi_p$. The verifier MUST NOT accept that
+attribution unless this procedure outputs $\top$ for the same inputs, because
+$Ring.verify$ is what binds $\bar{Y}$ to a member of the ring. A $\top$ from
+$Pedersen.verify$ alone proves knowledge of an opening of $\bar{Y}$, not ring
+membership.
 
 
 # Appendix A. Concrete Instantiations

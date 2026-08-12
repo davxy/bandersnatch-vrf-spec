@@ -1033,13 +1033,60 @@ the committed key \(\bar{Y}\) from the proof.
 
 \subsection{4.3. Unblinding}\label{unblinding}
 
-To link a Pedersen VRF proof to a specific public key, the prover
-reveals the blinding factor \(b\) and the verifier checks:
+Links a Pedersen VRF proof to a specific public key. The prover reveals
+the blinding factor \(b\), and the verifier checks that the proof is
+valid and that its committed key opens to the claimed public key.
 
-\[\bar{Y} = Y + b \cdot B\]
+\textbf{Input}:
 
-where \(Y \in \bold{G}\setminus \{\mathcal{O}\}\) is the claimed public
-key. The verifier MUST validate \(Y\) before accepting the association.
+\begin{itemize}
+\tightlist
+\item
+  \(\overline{io} \in (\bold{G}\times \bold{G})^n\): VRF input/output
+  pairs.
+\item
+  \(ad \in \bold{\Sigma}^*\): Additional data octet-string.
+\item
+  \(\pi = (\bar{Y}, R, O_k, s, s_b) \in (\bold{G}, \bold{G}, \bold{G}, \bold{F}, \bold{F})\):
+  Pedersen proof.
+\item
+  \(b \in \bold{F}\): Blinding factor revealed by the prover.
+\item
+  \(Y \in \bold{G}\): Claimed public key.
+\end{itemize}
+
+\textbf{Output}:
+
+\begin{itemize}
+\tightlist
+\item
+  \(\theta \in \{ \top, \bot \}\): \(\top\) if the proof is attributable
+  to \(Y\), \(\bot\) otherwise.
+\end{itemize}
+
+\textbf{Steps}:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Validate \(Y\) and \(\bar{Y}\)
+  \(\in \bold{G}\setminus \{\mathcal{O}\}\), output \(\bot\) if either
+  is invalid or the identity.
+\item
+  \(\theta_0 \gets Pedersen.verify(\overline{io}, ad, \pi)\) (section
+  4.2)
+\item
+  \(\theta_1 \gets \top \text{ if } \bar{Y} = Y + b \cdot B \text{ else } \bot\)
+\item
+  \(\theta \gets \theta_0 \land \theta_1\)
+\end{enumerate}
+
+The verifier MUST NOT accept the association unless step 2 outputs
+\(\top\) for the same \((\overline{io}, ad, \pi)\) that supplied
+\(\bar{Y}\). Step 3 on its own is not evidence of authorship: any party
+can compute \(\bar{Y} = Y + b \cdot B\) for a public key \(Y\) it does
+not control, without knowledge of the corresponding secret key.
 
 \subsection{4.4. Batch Verify}\label{batch-verify-1}
 
@@ -1316,6 +1363,13 @@ and \(Ring.verify\) are defined in
 \item
   \(\theta \gets \theta_0 \land \theta_1\)
 \end{enumerate}
+
+Note: to attribute a ring signature to a public key, apply the
+unblinding procedure of section 4.3 to \(\pi_p\). The verifier MUST NOT
+accept that attribution unless this procedure outputs \(\top\) for the
+same inputs, because \(Ring.verify\) is what binds \(\bar{Y}\) to a
+member of the ring. A \(\top\) from \(Pedersen.verify\) alone proves
+knowledge of an opening of \(\bar{Y}\), not ring membership.
 
 \section{Appendix A. Concrete
 Instantiations}\label{appendix-a.-concrete-instantiations}
