@@ -430,10 +430,16 @@ of a slightly larger proof.
 
 **Steps**:
 
-1. Validate $Y$, $R$, and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
+1. Validate $R \in \G$ and $Y, I_i, O_i \in \G \setminus \{\mathcal{O}\}$ for all $i$, output $\bot$ if any point is not in $\G$, or if $Y$ or any $I_i, O_i$ is the identity.
 2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
 3. $c \gets \texttt{challenge}([R], T)$
 4. $\theta \gets \top \text{ if } s \cdot I_m = R + c \cdot O_m \text{ else } \bot$
+
+The identity is a legal value for $R$ and MUST NOT be rejected. $R$ is a
+prover-chosen commitment and step 4 is sound for any value of it. $R$ is the
+identity only when $k = 0$, which makes $s = c \cdot x$ and publishes the secret
+key. A verifier that rejects it diverges from one that does not, on a proof that
+no honest prover produces.
 
 ## 3.3. Batch Verify
 
@@ -456,7 +462,7 @@ lemma).
 **Steps**:
 
 1. For each proof $j$:
-   a. Validate $Y_j$, $R_j$, and all $I_{j,i}, O_{j,i}$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
+   a. Validate $R_j \in \G$ and $Y_j, I_{j,i}, O_{j,i} \in \G \setminus \{\mathcal{O}\}$ for all $i$, output $\bot$ if any point is not in $\G$, or if $Y_j$ or any $I_{j,i}, O_{j,i}$ is the identity.
    b. $(T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y_j)] \;\Vert\; \overline{io}_j, ad_j)$
    c. $c_j \gets \texttt{challenge}([R_j], T_j)$
 
@@ -542,7 +548,7 @@ as described in Appendix A.2 with input the string: `"pedersen-blinding"`.
 
 **Steps**:
 
-1. Validate $\bar{Y}$, $R$, $O_k$, and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
+1. Validate $R, O_k \in \G$ and $\bar{Y}, I_i, O_i \in \G \setminus \{\mathcal{O}\}$ for all $i$, output $\bot$ if any point is not in $\G$, or if $\bar{Y}$ or any $I_i, O_i$ is the identity.
 2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)$
 3. $T.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}))$
 4. $c \gets \texttt{challenge}([R, O_k], T)$
@@ -552,6 +558,13 @@ as described in Appendix A.2 with input the string: `"pedersen-blinding"`.
 
 Note: no public key appears in the verify inputs -- verification uses the
 committed key $\bar{Y}$ from the proof.
+
+The identity is a legal value for $R$ and $O_k$ and MUST NOT be rejected. Both
+are prover-chosen commitments and steps 5 and 6 are sound for any value of them.
+Both are the identity only when $k = 0$, which makes $s = c \cdot x$ and
+publishes the secret key. $O_k$ is also the identity for every honest proof with
+$n = 0$, where $I_m = \mathcal{O}$ (see Appendix B). A verifier that rejects
+these values diverges from one that does not.
 
 ## 4.3. Unblinding
 
@@ -605,7 +618,7 @@ commitment correctness), each weighted by an independent random scalar.
 **Steps**:
 
 1. For each proof $j$:
-   a. Validate $\bar{Y}_j$, $R_j$, $O_{k,j}$, and all $I_{j,i}, O_{j,i}$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
+   a. Validate $R_j, O_{k,j} \in \G$ and $\bar{Y}_j, I_{j,i}, O_{j,i} \in \G \setminus \{\mathcal{O}\}$ for all $i$, output $\bot$ if any point is not in $\G$, or if $\bar{Y}_j$ or any $I_{j,i}, O_{j,i}$ is the identity.
    b. $(T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}_j, ad_j)$
    c. $T_j.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}_j))$
    d. $c_j \gets \texttt{challenge}([R_j, O_{k,j}], T_j)$
@@ -860,10 +873,14 @@ schemes: a valid proof still requires knowledge of the secret key $x$.
 - **Pedersen VRF**: No Schnorr pair is prepended, so with $n = 0$ the
   $\texttt{delinearize}$ procedure (section 1.6.4) sets the merged pair to
   the identity: $(I_m, O_m) = (\mathcal{O}, \mathcal{O})$. The VRF output
-  check $O_k + c \cdot O_m = s \cdot I_m$ is vacuously satisfied
-  ($\mathcal{O} = \mathcal{O}$), but the commitment check
+  check $O_k + c \cdot O_m = s \cdot I_m$ degenerates to $O_k = \mathcal{O}$,
+  which an honest prover satisfies because $O_k = k \cdot \mathcal{O}$. This is
+  why section 4.2 step 1 accepts the identity for $O_k$. The commitment check
   $R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B$ still proves knowledge
   of the Pedersen commitment opening $(x, b)$.
+
+Such a proof carries no VRF output. An application that consumes a VRF output
+MUST require $n \geq 1$ at the call site. The schemes do not enforce it.
 
 # Appendix C. Test Vectors
 
