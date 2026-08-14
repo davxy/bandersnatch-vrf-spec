@@ -166,7 +166,7 @@ impl Verifier {
         // The verifier key is reconstructed from the commitment and the constant
         // verifier key component of the SRS in order to verify some proof.
         // As an alternative we can construct the verifier key using the
-        // RingProofParams::verifier_key() method, but is more expensive.
+        // RingSetup::verifier_key() method, but is more expensive.
         // In other words, we prefer computing the commitment once, when the keyset changes.
         let verifier_key = setup.verifier_key_from_commitment(self.commitment.clone());
         let verifier = setup.ring_verifier(verifier_key);

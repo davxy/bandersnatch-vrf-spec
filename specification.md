@@ -884,7 +884,7 @@ MUST require $n \geq 1$ at the call site. The schemes do not enforce it.
 
 # Appendix C. Test Vectors
 
-The test vectors in this section were generated using `ark-vrf` version `0.5.0`.
+The test vectors in this section were generated using `ark-vrf` version `0.5.2`.
 
 ## C.1. Tiny VRF Test Vectors
 
