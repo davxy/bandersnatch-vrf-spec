@@ -13,10 +13,10 @@ over the BLS12-381 scalar field as specified in [MSZ21].
 
 ## Test Vectors
 
-* [Tiny](vectors/bandersnatch_ed_sha512_ell2_tiny_vectors.json)
-* [Thin](vectors/bandersnatch_ed_sha512_ell2_thin_vectors.json)
-* [Pedersen](vectors/bandersnatch_ed_sha512_ell2_pedersen_vectors.json)
-* [Ring](vectors/bandersnatch_ed_sha512_ell2_ring_vectors.json)
+* [Tiny](assets/vectors/bandersnatch_sha-512_ell2_tiny.json)
+* [Thin](assets/vectors/bandersnatch_sha-512_ell2_thin.json)
+* [Pedersen](assets/vectors/bandersnatch_sha-512_ell2_pedersen.json)
+* [Ring](assets/vectors/bandersnatch_sha-512_ell2_ring.json)
 
 ## References
 
