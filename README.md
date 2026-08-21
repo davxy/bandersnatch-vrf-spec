@@ -18,6 +18,10 @@ over the BLS12-381 scalar field as specified in [MSZ21].
 * [Pedersen](assets/vectors/bandersnatch_sha-512_ell2_pedersen.json)
 * [Ring](assets/vectors/bandersnatch_sha-512_ell2_ring.json)
 
+The [assets](assets/README.md) folder describes these files, the KZG reference
+strings and the example program. The ring vectors are deterministic, because the
+prover runs with no column blinding, and such a proof is not zero-knowledge.
+
 ## References
 
 * [Reference Implementation](https://github.com/davxy/ark-vrf)
