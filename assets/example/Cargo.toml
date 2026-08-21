@@ -1,9 +1,9 @@
 [package]
 name = "ark-vrf-bandersnatch-example"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 publish =  false
 
 [dependencies]
-ark-vrf = { version = "0.5.2", features = ["bandersnatch", "ring", "asm"] }
+ark-vrf = { version = "0.5.3", features = ["bandersnatch", "ring", "asm"] }
 hex = "0.4.3"
