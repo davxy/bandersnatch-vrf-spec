@@ -23,7 +23,7 @@ One file per scheme. Each file holds 7 test vectors. Appendix C of
 All values are hex strings with no `0x` prefix. The `comment` field names the
 suite and the vector index.
 
-`ark-vrf` 0.5.3 generates and verifies these files. The four files are
+`ark-vrf` 0.6.0 generates and verifies these files. The four files are
 byte-identical to the same-named files in `data/vectors/` of that crate.
 
 In the Pedersen and Ring files, the `blinding` field is the Pedersen blinding
