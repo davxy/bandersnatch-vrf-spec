@@ -83,20 +83,17 @@ impl Prover {
     ///
     /// Used for tickets submission.
     pub fn ring_vrf_sign(&self, vrf_input_data: &[u8], aux_data: &[u8]) -> Vec<u8> {
-        use ark_vrf::ring::Prover as _;
-
         let input = vrf_input_point(vrf_input_data);
         let output = self.secret.output(input);
 
-        // Backend currently requires the wrapped type (plain affine points)
-        let pts: Vec<_> = self.ring.iter().map(|pk| pk.0).collect();
-
         // Proof construction
         let setup = ring_setup();
-        let prover_key = setup.prover_key(&pts).unwrap();
-        let prover = setup.ring_prover(prover_key, self.prover_idx);
+        let prover_key = setup.prover_key(&self.ring).unwrap();
+        let prover = setup
+            .ring_context()
+            .ring_prover(prover_key, self.prover_idx);
         let io = VrfIo { input, output };
-        let proof = self.secret.prove(io, aux_data, &prover);
+        let proof = self.secret.prove_ring(io, aux_data, &prover);
 
         // Output and Ring Proof bundled together (as per section 2.2)
         let signature = RingVrfSignature { output, proof };
@@ -110,13 +107,11 @@ impl Prover {
     /// Used for ticket claiming during block production.
     /// Not used with Safrole test vectors.
     pub fn ietf_vrf_sign(&self, vrf_input_data: &[u8], aux_data: &[u8]) -> Vec<u8> {
-        use ark_vrf::tiny::Prover as _;
-
         let input = vrf_input_point(vrf_input_data);
         let output = self.secret.output(input);
 
         let io = VrfIo { input, output };
-        let proof = self.secret.prove(io, aux_data);
+        let proof = self.secret.prove_tiny(io, aux_data);
 
         // Output and IETF Proof bundled together (as per section 2.2)
         let signature = IetfVrfSignature { output, proof };
@@ -136,9 +131,7 @@ struct Verifier {
 
 impl Verifier {
     fn new(ring: Vec<Public>) -> Self {
-        // Backend currently requires the wrapped type (plain affine points)
-        let pts: Vec<_> = ring.iter().map(|pk| pk.0).collect();
-        let verifier_key = ring_setup().verifier_key(&pts).unwrap();
+        let verifier_key = ring_setup().verifier_key(&ring).unwrap();
         let commitment = verifier_key.commitment();
         Self { ring, commitment }
     }
@@ -154,8 +147,6 @@ impl Verifier {
         aux_data: &[u8],
         signature: &[u8],
     ) -> Result<[u8; 32], ()> {
-        use ark_vrf::ring::Verifier as _;
-
         let signature = RingVrfSignature::deserialize_compressed(signature).unwrap();
 
         let input = vrf_input_point(vrf_input_data);
@@ -169,9 +160,9 @@ impl Verifier {
         // RingSetup::verifier_key() method, but is more expensive.
         // In other words, we prefer computing the commitment once, when the keyset changes.
         let verifier_key = setup.verifier_key_from_commitment(self.commitment.clone());
-        let verifier = setup.ring_verifier(verifier_key);
+        let verifier = setup.ring_context().ring_verifier(verifier_key);
         let io = VrfIo { input, output };
-        if Public::verify(io, aux_data, &signature.proof, &verifier).is_err() {
+        if signature.proof.verify(io, aux_data, &verifier).is_err() {
             println!("Ring signature verification failure");
             return Err(());
         }
@@ -196,8 +187,6 @@ impl Verifier {
         signature: &[u8],
         signer_key_index: usize,
     ) -> Result<[u8; 32], ()> {
-        use ark_vrf::tiny::Verifier as _;
-
         let signature = IetfVrfSignature::deserialize_compressed(signature).unwrap();
 
         let input = vrf_input_point(vrf_input_data);
@@ -205,7 +194,7 @@ impl Verifier {
 
         let public = &self.ring[signer_key_index];
         let io = VrfIo { input, output };
-        if public.verify(io, aux_data, &signature.proof).is_err() {
+        if public.verify_tiny(io, aux_data, &signature.proof).is_err() {
             println!("Ring signature verification failure");
             return Err(());
         }
@@ -257,10 +246,9 @@ fn main() {
         .collect();
     let prover_key_index = 3;
 
-    // NOTE: any key can be replaced with the padding point
-    let padding_point = Public::from_affine(RingSetup::padding_point()).unwrap();
-    ring[2] = padding_point;
-    ring[7] = padding_point;
+    // Any key can be replaced with the padding point
+    ring[2] = Public::padding();
+    ring[7] = Public::padding();
 
     let prover = Prover::new(ring.clone(), prover_key_index);
     let verifier = Verifier::new(ring);

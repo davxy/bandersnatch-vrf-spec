@@ -3,7 +3,7 @@ title: Bandersnatch VRF-AD Specification
 author:
   - Davide Galassi
   - Seyed Hosseini
-date: 12 Aug 2026 - Draft 35
+date: 20 Oct 2026 - Draft 36
 ---
 
 \newcommand{\G}{\bold{G}}
@@ -90,6 +90,10 @@ via $\texttt{enc\_64}$ in the VRF transcript (section 1.6.5).
   point encoding (compressed little-endian), hash-to-curve (Elligator 2 random
   oracle), and security level (128-bit). Bump the trailing version suffix when
   any of these changes.
+  Version 2 of this suite, `"Bandersnatch-SHA512-ELL2-v2"`, differs only in the
+  $Z_{pad}$ prefix of hash-to-curve (Appendix A.2), which follows [RFC-9380]
+  exactly. The reference implementation provides it as `bandersnatch_v2`. It may
+  replace this version in a future draft.
 
 - `challenge_len` = 16 bytes (128-bit security).
 - `expanded_scalar_len` = $\lceil(\lceil\log_2(r)\rceil + 128) / 8\rceil$ = 48 bytes.
@@ -789,6 +793,13 @@ using the method defined in section 3 of [RFC-9380] [@RFC9380], with the
 *Elligator 2* map to curve (section 6.8.2) and
 $\texttt{expand\_message\_xmd}$ with SHA-512 (section 5.3.1).
 
+With one difference from section 5.3.1: the zero prefix $Z_{pad}$ of
+$\texttt{expand\_message\_xmd}$ has $L = 48$ octets, the expanded length of one
+field element $\lceil(\lceil\log_2(p)\rceil + 128) / 8\rceil$, and not
+$s_{in\_bytes} = 128$, the SHA-512 input block size. The expansion length is
+$2 \cdot L = 96$ octets. An implementation with the RFC prefix does not
+reproduce the constants of this document or the vectors of Appendix C.
+
 This is the random oracle (`_RO_`) construction: the input is hashed to two
 independent field elements, each is mapped to a curve point via Elligator 2,
 and the results are added.
@@ -884,7 +895,7 @@ MUST require $n \geq 1$ at the call site. The schemes do not enforce it.
 
 # Appendix C. Test Vectors
 
-The test vectors in this section were generated using `ark-vrf` version `0.5.3`.
+The test vectors in this section were generated using `ark-vrf` version `0.6.0`.
 
 ## C.1. Tiny VRF Test Vectors
 
