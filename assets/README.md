@@ -49,14 +49,17 @@ The result:
 - The proof is deterministic. The same inputs give the same proof bytes.
 - The proof is not zero-knowledge. The anonymity that section 5 promises does
   not hold. Treat such a proof as a proof that names its signer.
-- The proof is still valid. A verifier with normal parameters for the same ring
-  size accepts it. Only the content of the zk rows changes, not the domain
+- The proof is still valid. A verifier with normal parameters for the same
+  domain accepts it. Only the content of the zk rows changes, not the domain
   layout.
 
 A production prover MUST keep blinding on, through `RingContext::new`.
 
 Ring parameters of the vectors: a ring of 8 public keys, with the signer at index
-3. The `ring_pks` field holds the 8 keys in that order.
+3. The `ring_pks` field holds the 8 keys in that order. The domain is 2048, as in
+section 5, so the `2-11` reference string serves with no truncation. The padding
+point fills the key positions after the 8 keys, up to the capacity of 1791 keys.
+Another domain gives other `ring_pks_com` and `ring_proof` values (section 5).
 
 ## srs/
 
@@ -91,7 +94,9 @@ reserves. The 253 bits carry the blinding factor, and 253 is the bit size of the
 Bandersnatch scalar field modulus.
 
 Section 5 of `specification.md` fixes the domain size to 2048, so the `2-11`
-files match that configuration. The `2-16` files serve larger rings.
+files match that configuration. The `2-16` files serve larger rings with a larger
+domain. Ring commitments and proofs with such a domain are not compatible with
+the configuration of section 5.
 
 ## example/
 
