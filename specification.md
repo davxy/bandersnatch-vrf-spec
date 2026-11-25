@@ -149,7 +149,7 @@ squeezed from it. After the first squeeze, $\texttt{absorb}$ MUST NOT be called.
 - $\texttt{new\_transcript}() \to T$: Create a fresh transcript instance and absorb $\texttt{suite\_id}$.
 - $\texttt{absorb}(data \in \S^*)$: Feed bytes into the hash state. MUST NOT be called after squeeze.
 - $\texttt{squeeze}(n \in \mathbb{N}) \to \S^n$: Produce $n$ output bytes.
-- $\texttt{fork}() \to T$: Clone the transcript state.
+- $\texttt{clone}() \to T$: Return an independent copy of the transcript state.
 
 A concrete instantiation using SHA-512 is given in Appendix A.1.
 
@@ -214,6 +214,12 @@ derived from the transcript. For $n = 0$, returns the identity pair.
 For $n = 1$, the pair is returned unchanged ($z_0 = 1$). For $n \geq 2$,
 random scalars prevent an attacker from mixing components across pairs.
 
+The scalars do this only if the prover cannot choose its secret key after
+them. So the caller MUST supply a transcript state that already binds the key:
+Tiny VRF and Thin VRF carry the public key $Y$ in the pair list, and Pedersen
+VRF absorbs the key commitment $\bar{Y}$ before it clones $T$ for
+$\texttt{delinearize}$ (section 4.1).
+
 **Input**:
 
 - $\overline{io} \in (\G \times \G)^n$: Sequence of input/output pairs.
@@ -238,9 +244,8 @@ random scalars prevent an attacker from mixing components across pairs.
 
 ### 1.6.5. VRF Transcript
 
-Shared transcript construction used by all VRF-AD schemes. Absorbs
-input/output pairs, merges them via delinearization (section 1.6.4),
-and absorbs additional data.
+Shared transcript construction used by all VRF-AD schemes. Absorbs the scheme
+tag, the input/output pairs and the additional data.
 
 **Input**:
 
@@ -251,7 +256,6 @@ and absorbs additional data.
 **Output**:
 
 - $T$: Transcript state.
-- $(I_m, O_m) \in \G \times \G$: Merged input/output pair.
 
 **Steps**:
 
@@ -261,8 +265,7 @@ and absorbs additional data.
 4. For each $(I_i, O_i)$ in $\overline{io}$:
    $T.\texttt{absorb}(\texttt{enc\_point}(I_i) \;\Vert\; \texttt{enc\_point}(O_i))$
 5. $T.\texttt{absorb}(\texttt{enc\_64}(\texttt{len}(ad)) \;\Vert\; ad)$
-6. $(I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{fork}())$
-7. Return $(T, (I_m, O_m))$
+6. Return $T$
 
 **Transcript**:
 
@@ -289,7 +292,7 @@ nonce to the I/O pairs and additional data.
 
 **Steps**:
 
-1. $T' \gets T.\texttt{fork}()$
+1. $T' \gets T.\texttt{clone}()$
 2. $T'.\texttt{absorb}(\texttt{NonceExpand} \;\Vert\; \texttt{enc\_scalar}(d))$
 3. $h \gets T'.\texttt{squeeze}(64)$
 4. $T.\texttt{absorb}(\texttt{Nonce} \;\Vert\; h)$
@@ -361,12 +364,13 @@ proofs where $c \geq 2^{8 \cdot \texttt{challenge\_len}}$.
 **Steps**:
 
 1. $Y \gets x \cdot G$
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{TinyVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
-3. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
-4. $R \gets k \cdot I_m$
-5. $c \gets \texttt{challenge}([R], T)$
-6. $s \gets k + c \cdot x$
-7. $\pi \gets (c, s)$
+2. $T \gets \texttt{vrf\_transcript}(\texttt{TinyVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
+3. $(I_m, O_m) \gets \texttt{delinearize}([(G, Y)] \;\Vert\; \overline{io}, T.\texttt{clone}())$
+4. $k \gets \texttt{nonce}(x, T.\texttt{clone}())$
+5. $R \gets k \cdot I_m$
+6. $c \gets \texttt{challenge}([R], T)$
+7. $s \gets k + c \cdot x$
+8. $\pi \gets (c, s)$
 
 ## 2.2. Verify
 
@@ -384,10 +388,11 @@ proofs where $c \geq 2^{8 \cdot \texttt{challenge\_len}}$.
 **Steps**:
 
 1. Validate $Y$ and all $I_i, O_i$ $\in \G \setminus \{\mathcal{O}\}$, output $\bot$ if any is invalid or the identity.
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{TinyVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
-3. $R \gets s \cdot I_m - c \cdot O_m$
-4. $c' \gets \texttt{challenge}([R], T)$
-5. $\theta \gets \top \text{ if } c = c' \text{ else } \bot$
+2. $T \gets \texttt{vrf\_transcript}(\texttt{TinyVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
+3. $(I_m, O_m) \gets \texttt{delinearize}([(G, Y)] \;\Vert\; \overline{io}, T.\texttt{clone}())$
+4. $R \gets s \cdot I_m - c \cdot O_m$
+5. $c' \gets \texttt{challenge}([R], T)$
+6. $\theta \gets \top \text{ if } c = c' \text{ else } \bot$
 
 # 3. Thin VRF
 
@@ -412,12 +417,13 @@ of a slightly larger proof.
 **Steps**:
 
 1. $Y \gets x \cdot G$
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
-3. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$
-4. $R \gets k \cdot I_m$
-5. $c \gets \texttt{challenge}([R], T)$
-6. $s \gets k + c \cdot x$
-7. $\pi \gets (R, s)$
+2. $T \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
+3. $(I_m, O_m) \gets \texttt{delinearize}([(G, Y)] \;\Vert\; \overline{io}, T.\texttt{clone}())$
+4. $k \gets \texttt{nonce}(x, T.\texttt{clone}())$
+5. $R \gets k \cdot I_m$
+6. $c \gets \texttt{challenge}([R], T)$
+7. $s \gets k + c \cdot x$
+8. $\pi \gets (R, s)$
 
 ## 3.2. Verify
 
@@ -435,12 +441,13 @@ of a slightly larger proof.
 **Steps**:
 
 1. Validate $R \in \G$ and $Y, I_i, O_i \in \G \setminus \{\mathcal{O}\}$ for all $i$, output $\bot$ if any point is not in $\G$, or if $Y$ or any $I_i, O_i$ is the identity.
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
-3. $c \gets \texttt{challenge}([R], T)$
-4. $\theta \gets \top \text{ if } s \cdot I_m = R + c \cdot O_m \text{ else } \bot$
+2. $T \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y)] \;\Vert\; \overline{io}, ad)$
+3. $(I_m, O_m) \gets \texttt{delinearize}([(G, Y)] \;\Vert\; \overline{io}, T.\texttt{clone}())$
+4. $c \gets \texttt{challenge}([R], T)$
+5. $\theta \gets \top \text{ if } s \cdot I_m = R + c \cdot O_m \text{ else } \bot$
 
 The identity is a legal value for $R$ and MUST NOT be rejected. $R$ is a
-prover-chosen commitment and step 4 is sound for any value of it. $R$ is the
+prover-chosen commitment and step 5 is sound for any value of it. $R$ is the
 identity only when $k = 0$, which makes $s = c \cdot x$ and publishes the secret
 key. A verifier that rejects it diverges from one that does not, on a proof that
 no honest prover produces.
@@ -467,8 +474,9 @@ lemma).
 
 1. For each proof $j$:
    a. Validate $R_j \in \G$ and $Y_j, I_{j,i}, O_{j,i} \in \G \setminus \{\mathcal{O}\}$ for all $i$, output $\bot$ if any point is not in $\G$, or if $Y_j$ or any $I_{j,i}, O_{j,i}$ is the identity.
-   b. $(T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y_j)] \;\Vert\; \overline{io}_j, ad_j)$
-   c. $c_j \gets \texttt{challenge}([R_j], T_j)$
+   b. $T_j \gets \texttt{vrf\_transcript}(\texttt{ThinVrf}, [(G, Y_j)] \;\Vert\; \overline{io}_j, ad_j)$
+   c. $(I_{m,j}, O_{m,j}) \gets \texttt{delinearize}([(G, Y_j)] \;\Vert\; \overline{io}_j, T_j.\texttt{clone}())$
+   d. $c_j \gets \texttt{challenge}([R_j], T_j)$
 
 2. Derive random weights:
    a. $T_w \gets \texttt{new\_transcript}()$
@@ -527,16 +535,17 @@ as described in Appendix A.2 with input the string: `"pedersen-blinding"`.
 
 **Steps**:
 
-1. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)$
-2. $b \gets \texttt{blinding}(x, T.\texttt{fork}())$ (see Appendix A.4)
+1. $T \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)$
+2. $b \gets \texttt{blinding}(x, T.\texttt{clone}())$ (see Appendix A.4)
 3. $\bar{Y} \gets x \cdot G + b \cdot B$
 4. $T.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}))$
-5. $k \gets \texttt{nonce}(x, T.\texttt{fork}())$, $\quad k_b \gets \texttt{nonce}(b, T.\texttt{fork}())$
-6. $R \gets k \cdot G + k_b \cdot B$
-7. $O_k \gets k \cdot I_m$
-8. $c \gets \texttt{challenge}([R, O_k], T)$
-9. $s \gets k + c \cdot x$, $\quad s_b \gets k_b + c \cdot b$
-10. $\pi \gets (\bar{Y}, R, O_k, s, s_b)$
+5. $(I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{clone}())$
+6. $k \gets \texttt{nonce}(x, T.\texttt{clone}())$, $\quad k_b \gets \texttt{nonce}(b, T.\texttt{clone}())$
+7. $R \gets k \cdot G + k_b \cdot B$
+8. $O_k \gets k \cdot I_m$
+9. $c \gets \texttt{challenge}([R, O_k], T)$
+10. $s \gets k + c \cdot x$, $\quad s_b \gets k_b + c \cdot b$
+11. $\pi \gets (\bar{Y}, R, O_k, s, s_b)$
 
 ## 4.2. Verify
 
@@ -553,18 +562,19 @@ as described in Appendix A.2 with input the string: `"pedersen-blinding"`.
 **Steps**:
 
 1. Validate $R, O_k \in \G$ and $\bar{Y}, I_i, O_i \in \G \setminus \{\mathcal{O}\}$ for all $i$, output $\bot$ if any point is not in $\G$, or if $\bar{Y}$ or any $I_i, O_i$ is the identity.
-2. $(T, (I_m, O_m)) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)$
+2. $T \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}, ad)$
 3. $T.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}))$
-4. $c \gets \texttt{challenge}([R, O_k], T)$
-5. $\theta_0 \gets \top \text{ if } O_k + c \cdot O_m = s \cdot I_m \text{ else } \bot$
-6. $\theta_1 \gets \top \text{ if } R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B \text{ else } \bot$
-7. $\theta = \theta_0 \land \theta_1$
+4. $(I_m, O_m) \gets \texttt{delinearize}(\overline{io}, T.\texttt{clone}())$
+5. $c \gets \texttt{challenge}([R, O_k], T)$
+6. $\theta_0 \gets \top \text{ if } O_k + c \cdot O_m = s \cdot I_m \text{ else } \bot$
+7. $\theta_1 \gets \top \text{ if } R + c \cdot \bar{Y} = s \cdot G + s_b \cdot B \text{ else } \bot$
+8. $\theta = \theta_0 \land \theta_1$
 
 Note: no public key appears in the verify inputs -- verification uses the
 committed key $\bar{Y}$ from the proof.
 
 The identity is a legal value for $R$ and $O_k$ and MUST NOT be rejected. Both
-are prover-chosen commitments and steps 5 and 6 are sound for any value of them.
+are prover-chosen commitments and steps 6 and 7 are sound for any value of them.
 Both are the identity only when $k = 0$, which makes $s = c \cdot x$ and
 publishes the secret key. $O_k$ is also the identity for every honest proof with
 $n = 0$, where $I_m = \mathcal{O}$ (see Appendix B). A verifier that rejects
@@ -623,9 +633,10 @@ commitment correctness), each weighted by an independent random scalar.
 
 1. For each proof $j$:
    a. Validate $R_j, O_{k,j} \in \G$ and $\bar{Y}_j, I_{j,i}, O_{j,i} \in \G \setminus \{\mathcal{O}\}$ for all $i$, output $\bot$ if any point is not in $\G$, or if $\bar{Y}_j$ or any $I_{j,i}, O_{j,i}$ is the identity.
-   b. $(T_j, (I_{m,j}, O_{m,j})) \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}_j, ad_j)$
+   b. $T_j \gets \texttt{vrf\_transcript}(\texttt{PedersenVrf}, \overline{io}_j, ad_j)$
    c. $T_j.\texttt{absorb}(\texttt{enc\_point}(\bar{Y}_j))$
-   d. $c_j \gets \texttt{challenge}([R_j, O_{k,j}], T_j)$
+   d. $(I_{m,j}, O_{m,j}) \gets \texttt{delinearize}(\overline{io}_j, T_j.\texttt{clone}())$
+   e. $c_j \gets \texttt{challenge}([R_j, O_{k,j}], T_j)$
 
 2. Derive random weights:
    a. $T_w \gets \texttt{new\_transcript}()$
@@ -787,7 +798,7 @@ where $\texttt{enc\_64}(n)$ encodes integer $n$ as an 8-byte little-endian octet
 Each block yields 64 bytes. Output is read sequentially across blocks; partial
 block state is preserved between squeeze calls.
 
-**Fork**: duplicates the full internal state (including any partial block position
+**Clone**: duplicates the full internal state (including any partial block position
 if squeezing has begun).
 
 ## A.2. Hash to Curve
@@ -862,7 +873,7 @@ $b$ as a fresh uniformly random scalar rather than using this deterministic meth
 **Input**:
 
 - $x \in \F$: Secret scalar.
-- $T$: Transcript state (from $\texttt{vrf\_transcript}$).
+- $T$: Transcript state (from $\texttt{vrf\_transcript}$, section 4.1 step 1).
 
 **Output**:
 
@@ -880,7 +891,7 @@ to hash. The proof-of-knowledge component, however, remains sound in all
 schemes: a valid proof still requires knowledge of the secret key $x$.
 
 - **Tiny VRF and Thin VRF**: Both schemes prepend the Schnorr pair $(G, Y)$
-  to the I/O list before delinearization (sections 2.1 and 3.1, step 2),
+  to the I/O list before delinearization (sections 2.1 and 3.1, steps 2 and 3),
   so the internal pair count is at least 1 regardless of the user-supplied $n$.
   With zero VRF pairs, the scheme degenerates to a Schnorr signature on the
   additional data $ad$, proving knowledge of $x$ for public key $Y$.
