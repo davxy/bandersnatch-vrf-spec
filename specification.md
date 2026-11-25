@@ -3,7 +3,7 @@ title: Bandersnatch VRF-AD Specification
 author:
   - Davide Galassi
   - Seyed Hosseini
-date: 20 Oct 2026 - Draft 36
+date: 25 Nov 2026 - Draft 37
 ---
 
 \newcommand{\G}{\bold{G}}
